@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orbital Debt</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #ebebeb;
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <script>
+        const PALETTE = {
+            bg: '#ebebeb',
+            primary: '#3b3bff',
+            secondary: '#1ad1a3',
+            tertiary: '#b626ff',
+            accent: '#ff1f7a',
+            warning: '#ff8243'
+        };
+
+        const colors = [
+            PALETTE.primary,
+            PALETTE.secondary,
+            PALETTE.tertiary,
+            PALETTE.accent,
+            PALETTE.warning,
+            PALETTE.primary
+        ];
+
+        let circles = [];
+        let beamAngle1 = 45;
+        let beamAngle2 = 135;
+        let startTime;
+        let timeScale = 1.0;
+        let attractorX, attractorY;
+        let shockwaves = [];
+        let noiseOffsets = [];
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            startTime = millis();
+            
+            attractorX = width * 0.3;
+            attractorY = height * 0.7;
+            
+            for (let i = 0; i < 6; i++) {
+                let angle = i * 60;
+                noiseOffsets.push({
+                    x: random(1000),
+                    y: random(1000),
+                    speed: random(0.003, 0.008),
+                    rotSpeed: random(0.5, 2.0)
+                });
+                circles.push({
+                    baseAngle: angle,
+                    currentAngle: angle,
+                    radius: 200,
+                    size: 60,
+                    color: colors[i],
+                    phaseOffset: 0,
+                    velocityError: 0,
+                    rotation: 0,
+                    vx: 0,
+                    vy: 0,
+                    x: 0,
+                    y: 0
+                });
+            }
+        }
+
+        function draw() {
+            background(PALETTE.bg);
+            
+            let elapsed = (millis() - startTime) * timeScale / 1000;
+            let phase = 1;
+            
+            if (elapsed > 90) phase = 3;
+            else if (elapsed > 40) phase = 2;
+            
+            timeScale = map(mouseX, 0, width, 0.5, 2.0, true);
+            
+            if (phase === 3) {
+                attractorX = mouseX;
+                attractorY = mouseY;
+            }
+            
+            push();
+            translate(width / 2, height / 2);
+            
+            if (phase === 3) {
+                let rotAmount = (elapsed - 90) * 0.1;
+                beamAngle1 = 45 + rotAmount;
+                beamAngle2 = 135 + rotAmount;
+            }
+            
+            drawBeam(beamAngle1, phase);
+            drawBeam(beamAngle2, phase);
+            
+            pop();
+            
+            blendMode(SCREEN);
+            updateAndDrawCircles(phase, elapsed);
+            blendMode(BLEND);
+            
+            updateShockwaves();
+            
+            drawInteractionIndicator(elapsed);
+        }
+
+        function drawBeam(angle, phase) {
+            push();
+            rotate(radians(angle));
+            
+            let opacity = phase === 3 ? 0.6 : 1.0;
+            
+            if (phase === 3) {
+                for (let offset = -2; offset <= 2; offset += 2) {
+                    push();
+                    translate(offset, offset);
+                    fill(red(PALETTE.primary), green(PALETTE.primary), blue(PALETTE.primary), opacity * 255 * 0.3);
+                    noStroke();
+                    rect(-200, -40, 400, 80, 40);
+                    pop();
+                }
+            }
+            
+            fill(red(PALETTE.primary), green(PALETTE.primary), blue(PALETTE.primary), opacity * 255);
+            noStroke();
+            rect(-200, -40, 400, 80, 40);
+            
+            pop();
+        }
+
+        function updateAndDrawCircles(phase, elapsed) {
+            let baseSpeed = 0.8;
+            
+            for (let i = 0; i < circles.length; i++) {
+                let c = circles[i];
+                let col = color(c.color);
+                
+                if (phase === 1) {
+                    c.currentAngle += baseSpeed;
+                    c.radius = 200;
+                    
+                    let pulse = sin((frameCount / 180) * TWO_PI);
+                    c.size = map(pulse, -1, 1, 50, 70);
+                    
+                    c.x = width / 2 + cos(radians(c.currentAngle)) * c.radius;
+                    c.y = height / 2 + sin(radians(c.currentAngle)) * c.radius;
+                    
+                    push();
+                    translate(c.x, c.y);
+                    stroke(col);
+                    strokeWeight(8);
+                    noFill();
+                    circle(0, 0, c.size);
+                    pop();
+                    
+                } else if (phase === 2) {
+                    let phaseProgress = (elapsed - 40) / 50;
+                    phaseProgress = constrain(phaseProgress, 0, 1);
+                    
+                    let easedProgress = easeInOutCubic(phaseProgress);
+                    
+                    let majorAxis = lerp(200, 280, easedProgress);
+                    let minorAxis = lerp(200, 140, easedProgress);
+                    
+                    let currentSpeed = lerp(0.8, 0.3, phaseProgress);
+                    
+                    c.velocityError += 0.02;
+                    c.currentAngle += currentSpeed + c.velocityError;
+                    
+                    let radAngle = radians(c.currentAngle);
+                    let radiusX = majorAxis;
+                    let radiusY = minorAxis;
+                    
+                    c.x = width / 2 + cos(radAngle) * radiusX;
+                    c.y = height / 2 + sin(radAngle) * radiusY;
+                    
+                    let strokeProgress = min(phaseProgress * 1.5, 1.0);
+                    let strokeW = lerp(8, 2, strokeProgress);
+                    
+                    let fillProgress = min((elapsed - 40) / 40, 1.0);
+                    fillProgress = easeInOutSin(fillProgress);
+                    let fillAlpha = fillProgress * 0.7;
+                    
+                    let noisePulse = noise((frameCount + i * 100) * 0.01);
+                    c.size = map(noisePulse, 0, 1, 45, 75);
+                    
+                    push();
+                    translate(c.x, c.y);
+                    
+                    if (fillAlpha > 0) {
+                        fill(red(col), green(col), blue(col), fillAlpha * 255);
+                    } else {
+                        noFill();
+                    }
+                    
+                    stroke(col);
+                    strokeWeight(strokeW);
+                    circle(0, 0, c.size);
+                    pop();
+                    
+                } else if (phase === 3) {
+                    let phaseTime = elapsed - 90;
+                    
+                    let dx = attractorX - c.x;
+                    let dy = attractorY - c.y;
+                    let dist = sqrt(dx * dx + dy * dy);
+                    let force = 1 / max(dist * dist, 100);
+                    
+                    let noiseX = noise(noiseOffsets[i].x + phaseTime * noiseOffsets[i].speed);
+                    let noiseY = noise(noiseOffsets[i].y + phaseTime * noiseOffsets[i].speed);
+                    
+                    let moveSpeed = map(i, 0, 5, 1.5, 4.0);
+                    
+                    c.vx += (dx / dist) * force * 50;
+                    c.vy += (dy / dist) * force * 50;
+                    
+                    c.vx += (noiseX - 0.5) * moveSpeed;
+                    c.vy += (noiseY - 0.5) * moveSpeed;
+                    
+                    c.vx *= 0.95;
+                    c.vy *= 0.95;
+                    
+                    for (let sw of shockwaves) {
+                        let sdx = c.x - sw.x;
+                        let sdy = c.y - sw.y;
+                        let sdist = sqrt(sdx * sdx + sdy * sdy);
+                        
+                        if (sdist < sw.radius && sdist > 0) {
+                            let repulsionForce = map(sdist, 0, sw.radius, 8, 3);
+                            c.vx += (sdx / sdist) * repulsionForce;
+                            c.vy += (sdy / sdist) * repulsionForce;
+                        }
+                    }
+                    
+                    c.x += c.vx;
+                    c.y += c.vy;
+                    
+                    c.rotation += noiseOffsets[i].rotSpeed;
+                    
+                    let noisePulse = noise((frameCount + i * 100) * 0.01);
+                    c.size = map(noisePulse, 0, 1, 45, 75);
+                    
+                    let opacity = map(dist, 0, 400, 0.4, 1.0, true);
+                    
+                    push();
+                    translate(c.x, c.y);
+                    rotate(radians(c.rotation));
+                    
+                    fill(red(col), green(col), blue(col), opacity * 180);
+                    stroke(red(col), green(col), blue(col), opacity * 255);
+                    strokeWeight(2);
+                    
+                    drawDashedCircle(0, 0, c.size, 12, 8);
+                    
+                    pop();
+                }
+            }
+        }
+
+        function drawDashedCircle(x, y, diameter, dashLen, gapLen) {
+            let radius = diameter / 2;
+            let circumference = TWO_PI * radius;
+            let totalDash = dashLen + gapLen;
+            let numDashes = floor(circumference / totalDash);
+            
+            noFill();
+            
+            for (let i = 0; i < numDashes; i++) {
+                let startAngle = (i * totalDash / radius);
+                let endAngle = startAngle + (dashLen / radius);
+                
+                arc(x, y, diameter, diameter, startAngle, endAngle);
+            }
+        }
+
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
+        }
+
+        function easeInOutSin(t) {
+            return -(cos(PI * t) - 1) / 2;
+        }
+
+        function mousePressed() {
+            shockwaves.push({
+                x: mouseX,
+                y: mouseY,
+                radius: 0,
+                maxRadius: 800,
+                age: 0
+            });
+        }
+
+        function updateShockwaves() {
+            for (let i = shockwaves.length - 1; i >= 0; i--) {
+                let sw = shockwaves[i];
+                sw.radius += 12;
+                sw.age++;
+                
+                if (sw.age > 60) {
+                    shockwaves.splice(i, 1);
+                }
+            }
+        }
+
+        function drawInteractionIndicator(elapsed) {
+            let fadeTime = 4.0;
+            if (elapsed > fadeTime) return;
+            
+            let alpha = map(elapsed, 0, fadeTime, 180, 0);
+            
+            push();
+            translate(width / 2, 20);
+            
+            fill(200, alpha);
+            noStroke();
+            
+            beginShape();
+            vertex(0, -8);
+            vertex(-4, 0);
+            vertex(0, 8);
+            vertex(4, 0);
+            endShape(CLOSE);
+            
+            stroke(200, alpha);
+            strokeWeight(1.5);
+            noFill();
+            circle(0, 0, 10);
+            
+            pop();
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            attractorX = width * 0.3;
+            attractorY = height * 0.7;
+        }
+    </script>
+</body>
+</html>
