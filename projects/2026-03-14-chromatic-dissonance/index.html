@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chromatic Dissonance</title>
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+canvas {
+  display: block;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+// Chromatic Dissonance - A canvas-based generative artwork
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let width, height;
+let circles = [];
+let mouse = { x: 0, y: 0, active: false };
+let turbulence = 0;
+let time = 0;
+
+// Resize canvas to fill viewport
+function resize() {
+  width = canvas.width = window.innerWidth;
+  height = canvas.height = window.innerHeight;
+}
+
+// Circle class with orbital drift behavior
+class Circle {
+  constructor(x, y, radius, color, blendMode) {
+    this.x = x;
+    this.y = y;
+    this.baseX = x;
+    this.baseY = y;
+    this.radius = radius;
+    this.color = color;
+    this.blendMode = blendMode;
+    
+    // Orbital parameters
+    this.orbitRadius = Math.random() * 80 + 40;
+    this.orbitSpeed = (Math.random() - 0.5) * 0.0003;
+    this.orbitPhase = Math.random() * Math.PI * 2;
+    
+    // Drift parameters for slow meandering
+    this.driftSpeed = (Math.random() - 0.5) * 0.02;
+    this.driftPhase = Math.random() * Math.PI * 2;
+    this.driftAmplitude = Math.random() * 30 + 20;
+    
+    // Secondary phase for complexity
+    this.phaseOffset = Math.random() * Math.PI * 2;
+    this.phaseSpeed = (Math.random() - 0.5) * 0.0002;
+    
+    // Turbulence velocity
+    this.vx = 0;
+    this.vy = 0;
+  }
+  
+  update(t, mouseInfluence, turbulenceForce) {
+    // Update orbital phase
+    this.orbitPhase += this.orbitSpeed;
+    this.phaseOffset += this.phaseSpeed;
+    
+    // Calculate base orbital position
+    let orbitX = Math.cos(this.orbitPhase + this.phaseOffset) * this.orbitRadius;
+    let orbitY = Math.sin(this.orbitPhase + this.phaseOffset) * this.orbitRadius;
+    
+    // Add slow drift
+    let driftX = Math.cos(t * this.driftSpeed + this.driftPhase) * this.driftAmplitude;
+    let driftY = Math.sin(t * this.driftSpeed + this.driftPhase * 1.3) * this.driftAmplitude;
+    
+    // Mouse influence - subtle gravitational warping
+    let dx = mouse.x - this.baseX;
+    let dy = mouse.y - this.baseY;
+    let dist = Math.sqrt(dx * dx + dy * dy);
+    let mouseForce = Math.max(0, 1 - dist / 400) * mouseInfluence;
+    let mousePullX = (dx / dist) * mouseForce * 15;
+    let mousePullY = (dy / dist) * mouseForce * 15;
+    
+    // Apply turbulence decay
+    this.vx *= 0.98;
+    this.vy *= 0.98;
+    
+    // Add new turbulence
+    if (turbulenceForce > 0) {
+      this.vx += (Math.random() - 0.5) * turbulenceForce * 3;
+      this.vy += (Math.random() - 0.5) * turbulenceForce * 3;
+    }
+    
+    // Compose final position
+    this.x = this.baseX + orbitX + driftX + mousePullX + this.vx;
+    this.y = this.baseY + orbitY + driftY + mousePullY + this.vy;
+    
+    // Wrap around screen edges
+    if (this.x < -this.radius) this.baseX += width + this.radius * 2;
+    if (this.x > width + this.radius) this.baseX -= width + this.radius * 2;
+    if (this.y < -this.radius) this.baseY += height + this.radius * 2;
+    if (this.y > height + this.radius) this.baseY -= height + this.radius * 2;
+  }
+  
+  draw() {
+    ctx.save();
+    ctx.globalCompositeOperation = this.blendMode;
+    
+    // Create radial gradient for soft edges
+    let gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+    gradient.addColorStop(0, this.color);
+    gradient.addColorStop(0.7, this.color);
+    
+    // Parse color and create transparent version
+    let transparentColor = this.color.replace(')', ', 0)').replace('rgb', 'rgba');
+    gradient.addColorStop(1, transparentColor);
+    
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.restore();
+  }
+}
+
+// Initialize circles
+function init() {
+  circles = [];
+  
+  // Define color palette with process colors
+  const colors = [
+    { rgb: 'rgb(0, 255, 255)', blend: 'lighter' },      // Cyan
+    { rgb: 'rgb(255, 0, 255)', blend: 'lighter' },      // Magenta
+    { rgb: 'rgb(255, 255, 0)', blend: 'multiply' },     // Yellow
+    { rgb: 'rgb(138, 43, 226)', blend: 'lighter' },     // Deep Violet
+  ];
+  
+  // Create multiple layers of circles
+  const numCircles = 25;
+  
+  for (let i = 0; i < numCircles; i++) {
+    let x = Math.random() * width;
+    let y = Math.random() * height;
+    let radius = Math.random() * 120 + 80;
+    let colorData = colors[Math.floor(Math.random() * colors.length)];
+    
+    circles.push(new Circle(x, y, radius, colorData.rgb, colorData.blend));
+  }
+  
+  // Add some larger circles for depth
+  for (let i = 0; i < 8; i++) {
+    let x = Math.random() * width;
+    let y = Math.random() * height;
+    let radius = Math.random() * 100 + 150;
+    let colorData = colors[Math.floor(Math.random() * colors.length)];
+    
+    circles.push(new Circle(x, y, radius, colorData.rgb, colorData.blend));
+  }
+  
+  // Add smaller accent circles
+  for (let i = 0; i < 12; i++) {
+    let x = Math.random() * width;
+    let y = Math.random() * height;
+    let radius = Math.random() * 60 + 40;
+    let colorData = colors[Math.floor(Math.random() * colors.length)];
+    
+    circles.push(new Circle(x, y, radius, colorData.rgb, colorData.blend));
+  }
+}
+
+// Animation loop
+function animate() {
+  time += 1;
+  
+  // Clear with white background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  
+  // Calculate mouse influence (0 to 1)
+  let mouseInfluence = mouse.active ? 1 : 0;
+  
+  // Decay turbulence
+  turbulence *= 0.975;
+  
+  // Update and draw all circles
+  circles.forEach(circle => {
+    circle.update(time, mouseInfluence, turbulence);
+    circle.draw();
+  });
+  
+  requestAnimationFrame(animate);
+}
+
+// Mouse movement handler
+function onMouseMove(e) {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  mouse.active = true;
+}
+
+// Mouse click handler - introduces turbulence
+function onClick(e) {
+  turbulence = Math.min(turbulence + 2, 5);
+}
+
+// Touch support
+function onTouchMove(e) {
+  e.preventDefault();
+  if (e.touches.length > 0) {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+    mouse.active = true;
+  }
+}
+
+function onTouchStart(e) {
+  e.preventDefault();
+  if (e.touches.length > 0) {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+    mouse.active = true;
+    turbulence = Math.min(turbulence + 2, 5);
+  }
+}
+
+// Event listeners
+window.addEventListener('resize', () => {
+  resize();
+  init();
+});
+
+window.addEventListener('mousemove', onMouseMove);
+window.addEventListener('click', onClick);
+window.addEventListener('touchmove', onTouchMove, { passive: false });
+window.addEventListener('touchstart', onTouchStart, { passive: false });
+
+// Start
+resize();
+init();
+animate();
+</script>
+</body>
+</html>

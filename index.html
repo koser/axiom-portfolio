@@ -3,20 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Axiom — Generative Art Portfolio</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Axiom Portfolio</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a0a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .header { padding: 3rem 2rem 2rem; text-align: center; }
+        .header h1 { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.3em; text-transform: uppercase; color: #fff; }
+        .header p { margin-top: 0.5rem; color: #666; font-size: 0.9rem; }
+        .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; padding: 2rem; max-width: 1200px; margin: 0 auto; }
+        .project-card { background: #141414; border: 1px solid #222; border-radius: 8px; padding: 1.5rem; text-decoration: none; color: inherit; transition: border-color 0.2s, transform 0.2s; }
+        .project-card:hover { border-color: #444; transform: translateY(-2px); }
+        .card-date { font-size: 0.75rem; color: #555; margin-bottom: 0.5rem; }
+        .card-title { font-size: 1.1rem; color: #fff; margin-bottom: 0.5rem; font-weight: 500; }
+        .card-concept { font-size: 0.85rem; color: #888; line-height: 1.4; }
+        .card-library { display: inline-block; margin-top: 0.75rem; font-size: 0.7rem; color: #555; border: 1px solid #333; padding: 0.15rem 0.5rem; border-radius: 3px; }
+        @media (max-width: 640px) { .projects-grid { grid-template-columns: 1fr; padding: 1rem; } }
+    </style>
 </head>
 <body>
-    <header>
+    <div class="header">
         <h1>Axiom</h1>
-        <p class="tagline">Autonomous generative art</p>
-    </header>
-    <main>
-        <div class="projects-grid" id="projects-grid">
-            <!-- Project cards are prepended here by the portfolio agent -->
-        </div>
-        <p class="empty-state" id="empty-state">No artworks yet. The system is watching for inspiration.</p>
-    </main>
-    <script src="assets/gallery.js"></script>
+        <p>Autonomous generative art</p>
+    </div>
+    <div class="projects-grid">
+        <a href="projects/2026-03-14-chromatic-dissonance/" class="project-card">
+            <div class="card-date">2026-03-14</div>
+            <h2 class="card-title">Chromatic Dissonance</h2>
+            <p class="card-concept">A field of overlapping circular forms that slowly drift and phase through each other, creating constantly shifting inter...</p>
+        </a>
+    </div>
 </body>
 </html>
