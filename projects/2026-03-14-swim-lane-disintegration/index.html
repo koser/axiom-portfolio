@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Swim Lane Disintegration</title>
+<style>
+body {
+margin: 0;
+overflow: hidden;
+background-color: #0d0d0d;
+}
+</style>
+</head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<script>
+let glyphs = [];
+let laneCount = 12;
+let glyphsPerLane = 15;
+let totalGlyphs = 180;
+let startTime;
+let lastPulseTime = 0;
+let pulsingGlyph = -1;
+let pulseProgress = 0;
+let laneOpacity = 255;
+let mouseInactiveTimer = 0;
+let simulatedMouseY = 0;
+let resetProgress = -1;
+let resetStartPositions = [];
+let disturbances = [];
+
+const VOID = '#0d0d0d';
+const DIVIDER = '#1a1a1a';
+const PRIMARY = '#2a7bc4';
+const SECONDARY = '#e8a830';
+const ACCENT = '#e84a3c';
+const RARE = '#f5f5f5';
+
+class Glyph {
+  constructor(lane, row, colorIndex) {
+    this.homeLane = lane;
+    this.homeRow = row;
+    this.w = 18;
+    this.h = 6;
+    
+    let laneWidth = width / laneCount;
+    this.homeX = lane * laneWidth + laneWidth / 2;
+    this.homeY = 80 + row * 80;
+    
+    this.x = this.homeX;
+    this.y = this.homeY;
+    this.vx = 0;
+    this.vy = 0;
+    
+    this.noiseOffsetX = random(1000);
+    this.noiseOffsetY = random(1000);
+    this.floatPhase = random(TWO_PI);
+    
+    if (colorIndex < 108) this.color = PRIMARY;
+    else if (colorIndex < 153) this.color = SECONDARY;
+    else if (colorIndex < 175) this.color = ACCENT;
+    else this.color = RARE;
+    
+    this.opacity = 1.0;
+    this.isPulsing = false;
+    this.pulsePhase = 0;
+  }
+  
+  update(phase, elapsed, mouseBiasX, attractionMult) {
+    if (resetProgress >= 0 && resetProgress < 1) {
+      let t = this.easeInOutExpo(resetProgress);
+      this.x = lerp(this.x, this.homeX, t * 0.08);
+      this.y = lerp(this.y, this.homeY, t * 0.08);
+      this.vx *= 0.92;
+      this.vy *= 0.92;
+      return;
+    }
+    
+    if (phase === 1) {
+      this.x = this.homeX;
+      this.y = this.homeY;
+      this.vx = 0;
+      this.vy = 0;
+    } else if (phase >= 2) {
+      let noiseVal = noise(this.noiseOffsetX, frameCount * 0.002);
+      let noiseDrift = map(noiseVal, 0, 1, -0.8, 0.8);
+      
+      if (phase >= 3) {
+        noiseVal = noise(this.noiseOffsetX, frameCount * 0.002);
+        noiseDrift = map(noiseVal, 0, 1, -1.8, 1.8);
+      }
+      
+      this.vx = noiseDrift + mouseBiasX;
+      
+      let vertFloat = sin(frameCount * 0.02 + this.floatPhase) * 0.2;
+      this.vy = vertFloat;
+      
+      if (phase >= 3) {
+        let neighbors = this.findNearestNeighbors(8, phase === 4 ? 80 : 120);
+        let ax = 0, ay = 0;
+        let attractForce = phase === 4 ? 0.12 : 0.05;
+        attractForce *= attractionMult;
+        
+        for (let n of neighbors) {
+          let dx = n.x - this.x;
+          let dy = n.y - this.y;
+          let d = sqrt(dx * dx + dy * dy);
+          if (d > 0 && d < (phase === 4 ? 80 : 120)) {
+            ax += (dx / d) * attractForce;
+            ay += (dy / d) * attractForce;
+          }
+          
+          if (phase === 4 && d > 0 && d < 25) {
+            ax -= (dx / d) * 0.3;
+            ay -= (dy / d) * 0.3;
+          }
+        }
+        
+        this.vx += ax;
+        this.vy += ay;
+        
+        if (phase === 4) {
+          this.vx += random(-0.4, 0.4);
+          this.vy += random(-0.4, 0.4);
+        }
+      }
+      
+      for (let d of disturbances) {
+        let dx = this.x - d.x;
+        let dy = this.y - d.y;
+        let dist = sqrt(dx * dx + dy * dy);
+        if (dist < d.radius && dist > 0) {
+          let force = d.strength * (1 - dist / d.radius);
+          this.vx += (dx / dist) * force;
+          this.vy += (dy / dist) * force;
+        }
+      }
+      
+      this.x += this.vx;
+      this.y += this.vy;
+      
+      if (this.x < -this.w) this.x = width + this.w;
+      if (this.x > width + this.w) this.x = -this.w;
+      if (this.y < -this.h) this.y = height + this.h;
+      if (this.y > height + this.h) this.y = -this.h;
+    }
+    
+    if (phase === 4 && this.color === RARE) {
+      let pulseInterval = 2.3 * 60;
+      let pulseFrame = frameCount % pulseInterval;
+      if (pulseFrame < 18) {
+        let t = pulseFrame / 18;
+        this.opacity = map(sin(t * PI), 0, 1, 0.6, 1.0);
+      } else {
+        this.opacity = 1.0;
+      }
+    }
+  }
+  
+  findNearestNeighbors(count, radius) {
+    let neighbors = [];
+    for (let g of glyphs) {
+      if (g === this) continue;
+      let dx = g.x - this.x;
+      let dy = g.y - this.y;
+      let d = sqrt(dx * dx + dy * dy);
+      if (d < radius) {
+        neighbors.push({glyph: g, dist: d, x: g.x, y: g.y});
+      }
+    }
+    neighbors.sort((a, b) => a.dist - b.dist);
+    return neighbors.slice(0, count).map(n => n.glyph);
+  }
+  
+  easeInOutExpo(t) {
+    if (t === 0) return 0;
+    if (t === 1) return 1;
+    if (t < 0.5) {
+      return pow(2, 20 * t - 10) / 2;
+    } else {
+      return (2 - pow(2, -20 * t + 10)) / 2;
+    }
+  }
+  
+  display() {
+    push();
+    let c = color(this.color);
+    let alpha = 255 * this.opacity;
+    
+    if (this.isPulsing) {
+      let pulseAlpha = map(sin(this.pulsePhase * PI), 0, 1, 0.4, 1.0);
+      alpha = 255 * pulseAlpha;
+    }
+    
+    fill(red(c), green(c), blue(c), alpha);
+    noStroke();
+    rect(this.x - this.w / 2, this.y - this.h / 2, this.w, this.h);
+    pop();
+  }
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  startTime = millis();
+  
+  let colorIndices = [];
+  for (let i = 0; i < totalGlyphs; i++) {
+    colorIndices.push(i);
+  }
+  colorIndices = shuffle(colorIndices);
+  
+  let idx = 0;
+  for (let lane = 0; lane < laneCount; lane++) {
+    for (let row = 0; row < 5; row++) {
+      if (idx < totalGlyphs) {
+        glyphs.push(new Glyph(lane, row, colorIndices[idx]));
+        idx++;
+      }
+    }
+  }
+  
+  noiseSeed(random(10000));
+}
+
+function draw() {
+  background(VOID);
+  
+  let elapsed = (millis() - startTime) / 1000;
+  let phase = 1;
+  if (elapsed > 90) phase = 4;
+  else if (elapsed > 45) phase = 3;
+  else if (elapsed > 15) phase = 2;
+  
+  if (mouseX !== pmouseX || mouseY !== pmouseY) {
+    mouseInactiveTimer = 0;
+  } else {
+    mouseInactiveTimer++;
+  }
+  
+  let effectiveMouseX = mouseX;
+  let effectiveMouseY = mouseY;
+  
+  if (mouseInactiveTimer > 480) {
+    effectiveMouseX = width / 2;
+    let oscillation = sin(frameCount * TWO_PI / (11 * 60));
+    effectiveMouseY = map(oscillation, -1, 1, height * 0.3, height * 0.7);
+  }
+  
+  let mouseBiasX = map(effectiveMouseX, 0, width, -1.2, 1.2);
+  let attractionMult = map(effectiveMouseY, 0, height, 0, 2.5);
+  
+  if (phase >= 3) {
+    let fadeStart = 45;
+    let fadeDuration = 5;
+    if (elapsed >= fadeStart && elapsed < fadeStart + fadeDuration) {
+      let fadeT = (elapsed - fadeStart) / fadeDuration;
+      laneOpacity = 255 * (1 - this.easeOutExpo(fadeT));
+    } else if (elapsed >= fadeStart + fadeDuration) {
+      laneOpacity = 0;
+    }
+  }
+  
+  if (laneOpacity > 0) {
+    stroke(DIVIDER);
+    strokeWeight(1);
+    for (let i = 1; i < laneCount; i++) {
+      let x = (i / laneCount) * width;
+      stroke(red(color(DIVIDER)), green(color(DIVIDER)), blue(color(DIVIDER)), laneOpacity);
+      line(x, 0, x, height);
+    }
+  }
+  
+  if (phase === 1 && elapsed - lastPulseTime > 0.8) {
+    if (pulsingGlyph >= 0) {
+      glyphs[pulsingGlyph].isPulsing = false;
+    }
+    pulsingGlyph = floor(random(totalGlyphs));
+    glyphs[pulsingGlyph].isPulsing = true;
+    glyphs[pulsingGlyph].pulsePhase = 0;
+    lastPulseTime = elapsed;
+  }
+  
+  if (pulsingGlyph >= 0 && glyphs[pulsingGlyph].isPulsing) {
+    glyphs[pulsingGlyph].pulsePhase += 1/12;
+    if (glyphs[pulsingGlyph].pulsePhase >= 1) {
+      glyphs[pulsingGlyph].isPulsing = false;
+      glyphs[pulsingGlyph].pulsePhase = 0;
+    }
+  }
+  
+  if (resetProgress >= 0) {
+    resetProgress += 1/120;
+    if (resetProgress >= 1) {
+      resetProgress = -1;
+      startTime = millis() - 15000;
+    }
+  }
+  
+  for (let i = disturbances.length - 1; i >= 0; i--) {
+    disturbances[i].strength -= 0.15;
+    disturbances[i].age++;
+    if (disturbances[i].age > 40) {
+      disturbances.splice(i, 1);
+    }
+  }
+  
+  for (let g of glyphs) {
+    g.update(phase, elapsed, mouseBiasX, attractionMult);
+  }
+  
+  for (let g of glyphs) {
+    g.display();
+  }
+  
+  if (frameCount < 240) {
+    let alpha = map(frameCount, 0, 240, 180, 0);
+    if (alpha > 0) {
+      drawInteractionIndicator(alpha);
+    }
+  }
+}
+
+function drawInteractionIndicator(alpha) {
+  push();
+  fill(255, alpha);
+  noStroke();
+  
+  let cx = width / 2;
+  let cy = 20;
+  
+  triangle(cx - 4, cy - 6, cx + 4, cy - 6, cx, cy);
+  rect(cx - 2, cy, 4, 6);
+  
+  pop();
+}
+
+function mousePressed() {
+  disturbances.push({
+    x: mouseX,
+    y: mouseY,
+    radius: 200,
+    strength: 3.5,
+    age: 0
+  });
+  mouseInactiveTimer = 0;
+}
+
+function keyPressed() {
+  if (key === 'r' || key === 'R') {
+    resetProgress = 0;
+    resetStartPositions = [];
+    for (let g of glyphs) {
+      resetStartPositions.push({x: g.x, y: g.y});
+    }
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  
+  for (let g of glyphs) {
+    let laneWidth = width / laneCount;
+    g.homeX = g.homeLane * laneWidth + laneWidth / 2;
+  }
+}
+
+function easeOutExpo(t) {
+  return t === 1 ? 1 : 1 - pow(2, -10 * t);
+}
+</script>
+</body>
+</html>
