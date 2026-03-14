@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perception Threshold</title>
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #FF5233;
+}
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let width, height;
+let squareX, squareY;
+const squareSize = 12;
+
+let cursorX = -1000;
+let cursorY = -1000;
+let prevCursorX = -1000;
+let prevCursorY = -1000;
+let cursorVelocity = 0;
+let cursorActive = false;
+
+let lastDisplacementTime = 0;
+let nextDisplacementDelay = randomDelay();
+
+let irregularMass = [];
+
+function resizeCanvas() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  
+  squareX = width / 2 - squareSize / 2;
+  squareY = height / 2 - squareSize / 2;
+  
+  generateIrregularMass();
+  render();
+}
+
+function generateIrregularMass() {
+  irregularMass = [];
+  const numBlobs = 8 + Math.floor(Math.random() * 6);
+  const centerX = width * (0.35 + Math.random() * 0.3);
+  const centerY = height * (0.35 + Math.random() * 0.3);
+  
+  for (let i = 0; i < numBlobs; i++) {
+    const angle = (i / numBlobs) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
+    const distance = Math.min(width, height) * (0.15 + Math.random() * 0.25);
+    const radius = Math.min(width, height) * (0.12 + Math.random() * 0.18);
+    
+    irregularMass.push({
+      x: centerX + Math.cos(angle) * distance,
+      y: centerY + Math.sin(angle) * distance,
+      radius: radius
+    });
+  }
+}
+
+function randomDelay() {
+  return 800 + Math.random() * 1600;
+}
+
+function calculateCursorVelocity() {
+  const dx = cursorX - prevCursorX;
+  const dy = cursorY - prevCursorY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  cursorVelocity = cursorVelocity * 0.7 + dist * 0.3;
+  prevCursorX = cursorX;
+  prevCursorY = cursorY;
+}
+
+function displaceSquare() {
+  if (!cursorActive) return;
+  
+  const velocityFactor = Math.max(0.2, 1 - Math.min(cursorVelocity / 50, 0.8));
+  
+  const maxDisplacement = 2 + velocityFactor * 6;
+  
+  const angle = Math.random() * Math.PI * 2;
+  const magnitude = 2 + Math.random() * (maxDisplacement - 2);
+  
+  const dx = Math.cos(angle) * magnitude;
+  const dy = Math.sin(angle) * magnitude;
+  
+  const newX = squareX + dx;
+  const newY = squareY + dy;
+  
+  if (newX >= 0 && newX <= width - squareSize && 
+      newY >= 0 && newY <= height - squareSize) {
+    squareX = newX;
+    squareY = newY;
+  }
+  
+  nextDisplacementDelay = randomDelay();
+  lastDisplacementTime = Date.now();
+}
+
+function render() {
+  const centerX = width / 2;
+  const centerY = height / 2;
+  
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const distFromCenter = Math.sqrt(
+        Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2)
+      );
+      const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
+      const vignette = Math.pow(distFromCenter / maxDist, 1.5);
+      
+      const r = Math.floor(255 - vignette * 80);
+      const g = Math.floor(82 - vignette * 25);
+      const b = Math.floor(51 - vignette * 20);
+      
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  
+  ctx.fillStyle = '#1a1412';
+  ctx.beginPath();
+  for (let i = 0; i < irregularMass.length; i++) {
+    const blob = irregularMass[i];
+    ctx.moveTo(blob.x + blob.radius, blob.y);
+    ctx.arc(blob.x, blob.y, blob.radius, 0, Math.PI * 2);
+  }
+  ctx.fill();
+  
+  ctx.fillStyle = '#F8F6F0';
+  ctx.fillRect(Math.round(squareX), Math.round(squareY), squareSize, squareSize);
+}
+
+function renderOptimized() {
+  const centerX = width / 2;
+  const centerY = height / 2;
+  
+  const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.sqrt(centerX * centerX + centerY * centerY));
+  gradient.addColorStop(0, 'rgb(255, 82, 51)');
+  gradient.addColorStop(0.7, 'rgb(220, 65, 40)');
+  gradient.addColorStop(1, 'rgb(175, 57, 31)');
+  
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  
+  ctx.fillStyle = '#1a1412';
+  ctx.beginPath();
+  for (let i = 0; i < irregularMass.length; i++) {
+    const blob = irregularMass[i];
+    if (i === 0) {
+      ctx.moveTo(blob.x + blob.radius, blob.y);
+    }
+    ctx.arc(blob.x, blob.y, blob.radius, 0, Math.PI * 2);
+  }
+  ctx.fill();
+  
+  ctx.fillStyle = '#F8F6F0';
+  ctx.fillRect(Math.round(squareX), Math.round(squareY), squareSize, squareSize);
+}
+
+function animate() {
+  const now = Date.now();
+  
+  calculateCursorVelocity();
+  
+  if (cursorActive && now - lastDisplacementTime >= nextDisplacementDelay) {
+    const oldX = Math.round(squareX);
+    const oldY = Math.round(squareY);
+    
+    displaceSquare();
+    
+    const newX = Math.round(squareX);
+    const newY = Math.round(squareY);
+    
+    if (oldX !== newX || oldY !== newY) {
+      renderOptimized();
+    }
+  }
+  
+  requestAnimationFrame(animate);
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  cursorX = e.clientX;
+  cursorY = e.clientY;
+  cursorActive = true;
+});
+
+canvas.addEventListener('mouseenter', (e) => {
+  cursorX = e.clientX;
+  cursorY = e.clientY;
+  prevCursorX = cursorX;
+  prevCursorY = cursorY;
+  cursorActive = true;
+  lastDisplacementTime = Date.now();
+  nextDisplacementDelay = randomDelay();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  cursorActive = false;
+  cursorVelocity = 0;
+});
+
+window.addEventListener('resize', resizeCanvas);
+
+resizeCanvas();
+animate();
+</script>
+</body>
+</html>
