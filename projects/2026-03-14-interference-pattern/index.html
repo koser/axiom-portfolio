@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interference Pattern</title>
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #A8C5D8;
+}
+canvas {
+  display: block;
+}
+</style>
+</head>
+<body>
+<script>
+// Pure vanilla JS implementation for canvas-based physics
+const canvas = document.createElement('canvas');
+document.body.appendChild(canvas);
+const ctx = canvas.getContext('2d');
+
+let width, height;
+let ellipsoids = [];
+let mouseX = 0;
+let mouseY = 0;
+
+// Color palette
+const colors = {
+  background: '#A8C5D8',
+  yellow: '#FFD700',
+  blue: '#0047AB',
+  coral: '#FF6B6B',
+  green: '#2D5016',
+  cream: '#FFFDD0'
+};
+
+const palette = [colors.yellow, colors.blue, colors.coral, colors.green, colors.cream];
+
+class Ellipsoid {
+  constructor(x, y, index) {
+    this.x = x;
+    this.y = y;
+    this.baseX = x;
+    this.baseY = y;
+    this.vx = (Math.random() - 0.5) * 0.5;
+    this.vy = (Math.random() - 0.5) * 0.5;
+    this.baseWidth = 40 + Math.random() * 30;
+    this.baseHeight = 100 + Math.random() * 80;
+    this.width = this.baseWidth;
+    this.height = this.baseHeight;
+    this.color = palette[index % palette.length];
+    this.mass = this.baseWidth * this.baseHeight;
+    this.compressionFactor = 1.0;
+    this.targetCompression = 1.0;
+  }
+
+  applyForces(ellipsoids, mouseX, mouseY) {
+    let fx = 0;
+    let fy = 0;
+    let nearbyCount = 0;
+    let totalProximity = 0;
+
+    // Spring back to original position (weak)
+    fx += (this.baseX - this.x) * 0.0005;
+    fy += (this.baseY - this.y) * 0.0005;
+
+    // Interact with other ellipsoids
+    for (let other of ellipsoids) {
+      if (other === this) continue;
+
+      const dx = other.x - this.x;
+      const dy = other.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < 0.1) continue;
+
+      const minDist = (this.width + other.width) * 0.5;
+
+      if (dist < minDist * 3) {
+        // Repulsion when too close
+        if (dist < minDist * 1.5) {
+          const force = (minDist * 1.5 - dist) * 0.0008;
+          fx -= (dx / dist) * force;
+          fy -= (dy / dist) * force;
+          nearbyCount++;
+          totalProximity += (minDist * 1.5 - dist) / (minDist * 1.5);
+        }
+        // Attraction when mid-range
+        else if (dist < minDist * 3) {
+          const force = (dist - minDist * 1.5) * 0.0002;
+          fx += (dx / dist) * force;
+          fy += (dy / dist) * force;
+        }
+      }
+    }
+
+    // Mouse influence (subtle gravitational well)
+    const mdx = mouseX - this.x;
+    const mdy = mouseY - this.y;
+    const mdist = Math.sqrt(mdx * mdx + mdy * mdy);
+    if (mdist > 0.1) {
+      const mouseForce = 0.0003;
+      fx += (mdx / mdist) * mouseForce;
+      fy += (mdy / mdist) * mouseForce;
+    }
+
+    // Apply forces
+    this.vx += fx;
+    this.vy += fy;
+
+    // Damping
+    this.vx *= 0.97;
+    this.vy *= 0.97;
+
+    // Calculate compression based on proximity
+    if (nearbyCount > 0) {
+      const avgProximity = totalProximity / nearbyCount;
+      this.targetCompression = 1.0 + avgProximity * 1.5;
+    } else {
+      this.targetCompression = 1.0;
+    }
+
+    // Smooth compression transition
+    this.compressionFactor += (this.targetCompression - this.compressionFactor) * 0.1;
+  }
+
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Boundary conditions with soft bounce
+    const margin = this.width;
+    if (this.x < margin) {
+      this.x = margin;
+      this.vx *= -0.5;
+    }
+    if (this.x > width - margin) {
+      this.x = width - margin;
+      this.vx *= -0.5;
+    }
+    if (this.y < margin) {
+      this.y = margin;
+      this.vy *= -0.5;
+    }
+    if (this.y > height - margin) {
+      this.y = height - margin;
+      this.vy *= -0.5;
+    }
+
+    // Update dimensions based on compression
+    this.width = this.baseWidth / Math.sqrt(this.compressionFactor);
+    this.height = this.baseHeight * this.compressionFactor;
+  }
+
+  draw() {
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.ellipse(this.x, this.y, this.width / 2, this.height / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function init() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+
+  // Create ellipsoids in a loose grid
+  ellipsoids = [];
+  const cols = Math.floor(width / 120);
+  const rows = Math.floor(height / 150);
+  const spacingX = width / (cols + 1);
+  const spacingY = height / (rows + 1);
+
+  let index = 0;
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const x = spacingX * (i + 1) + (Math.random() - 0.5) * 40;
+      const y = spacingY * (j + 1) + (Math.random() - 0.5) * 40;
+      ellipsoids.push(new Ellipsoid(x, y, index));
+      index++;
+    }
+  }
+
+  // Initialize mouse position to center
+  mouseX = width / 2;
+  mouseY = height / 2;
+}
+
+function animate() {
+  // Clear background
+  ctx.fillStyle = colors.background;
+  ctx.fillRect(0, 0, width, height);
+
+  // Update physics
+  for (let ellipsoid of ellipsoids) {
+    ellipsoid.applyForces(ellipsoids, mouseX, mouseY);
+  }
+
+  for (let ellipsoid of ellipsoids) {
+    ellipsoid.update();
+  }
+
+  // Sort by y position for proper overlap rendering
+  ellipsoids.sort((a, b) => a.y - b.y);
+
+  // Draw all ellipsoids
+  for (let ellipsoid of ellipsoids) {
+    ellipsoid.draw();
+  }
+
+  requestAnimationFrame(animate);
+}
+
+// Event listeners
+window.addEventListener('resize', () => {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+
+  // Reposition ellipsoids proportionally
+  for (let ellipsoid of ellipsoids) {
+    ellipsoid.baseX = (ellipsoid.baseX / canvas.width) * width || width / 2;
+    ellipsoid.baseY = (ellipsoid.baseY / canvas.height) * height || height / 2;
+    ellipsoid.x = ellipsoid.baseX;
+    ellipsoid.y = ellipsoid.baseY;
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
+
+window.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (e.touches.length > 0) {
+    mouseX = e.touches[0].clientX;
+    mouseY = e.touches[0].clientY;
+  }
+}, { passive: false });
+
+// Initialize and start
+init();
+animate();
+</script>
+</body>
+</html>
