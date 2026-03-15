@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soft Machine Drift</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #f4f1e8;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+    <script>
+        // Palette
+        const PALETTE = ['#4a7c8e', '#d94e72', '#8b5a7d', '#c9a84e', '#e87451'];
+        const BG_COLOR = '#f4f1e8';
+        const SHADOW_COLOR = '#2d5f3f';
+
+        // State Arrays
+        let capsules = [];
+        let granules = [];
+        let ripples = [];
+        let bgTexture;
+        
+        // Interaction State
+        let lastMouseMoved = 0;
+        let rotMultiplier = 1;
+        let noiseMultiplier = 1;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            colorMode(RGB, 255);
+            frameRate(60);
+            noiseSeed(42);
+
+            generateBackgroundTexture();
+
+            // Initialize entities
+            for (let i = 0; i < 28; i++) {
+                capsules.push(new Capsule(i % 4));
+            }
+            for (let i = 0; i < 150; i++) {
+                granules.push(new Granule());
+            }
+        }
+
+        function generateBackgroundTexture() {
+            bgTexture = createGraphics(windowWidth, windowHeight);
+            bgTexture.noStroke();
+            bgTexture.fill(45, 95, 63, 8); // Shadow color with ~3% opacity
+            for (let i = 0; i < 4000; i++) {
+                bgTexture.ellipse(random(width), random(height), random(2, 8));
+            }
+        }
+
+        function draw() {
+            background(BG_COLOR);
+            image(bgTexture, 0, 0);
+
+            let t = millis();
+            let cycleTime = t % 120000;
+            let phase = 1; // 0-20s
+            if (cycleTime > 20000 && cycleTime <= 65000) phase = 2; // 20s-65s
+            if (cycleTime > 65000) phase = 3; // 65s-120s
+
+            updateInteraction(t);
+
+            // Update and Draw Ripples
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                ripples[i].update(t);
+                ripples[i].draw();
+                if (ripples[i].isDead) ripples.splice(i, 1);
+            }
+
+            // Update and Draw Capsules
+            for (let c of capsules) {
+                c.update(phase, t, ripples);
+            }
+            
+            // Handle phase 2 blending organically (O(n^2) but n is small)
+            if (phase === 2) {
+                for (let i = 0; i < capsules.length; i++) {
+                    for (let j = i + 1; j < capsules.length; j++) {
+                        let d = p5.Vector.dist(capsules[i].pos, capsules[j].pos);
+                        if (d < 60) {
+                            capsules[i].col = lerpColor(capsules[i].col, capsules[j].baseCol, 0.02);
+                            capsules[j].col = lerpColor(capsules[j].col, capsules[i].baseCol, 0.02);
+                        }
+                    }
+                }
+            } else {
+                // Revert to base color slowly
+                for (let c of capsules) {
+                    c.col = lerpColor(c.col, c.baseCol, 0.01);
+                }
+            }
+
+            // Draw Capsules (Trails first, then bodies)
+            for (let c of capsules) c.drawTrails();
+            for (let c of capsules) c.drawBody(t);
+
+            // Update and Draw Granules
+            for (let g of granules) {
+                g.update(phase, t, capsules);
+                g.draw();
+            }
+
+            drawInteractionIndicator(t);
+        }
+
+        function updateInteraction(t) {
+            let mouseActive = (t - lastMouseMoved) < 2000; // 120 frames approx
+            if (mouseActive) {
+                rotMultiplier = map(mouseX, 0, width, 0.5, 2.2, true);
+                noiseMultiplier = map(mouseY, 0, height, 0.5, 1.5, true);
+            } else {
+                rotMultiplier = lerp(rotMultiplier, 1.0, 0.05);
+                noiseMultiplier = lerp(noiseMultiplier, 1.0, 0.05);
+            }
+        }
+
+        function mouseMoved() {
+            lastMouseMoved = millis();
+        }
+
+        function mousePressed() {
+            lastMouseMoved = millis();
+            ripples.push(new Ripple(mouseX, mouseY, millis()));
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            generateBackgroundTexture();
+        }
+
+        function drawInteractionIndicator(t) {
+            if (t < 4000) {
+                let alpha = map(t, 0, 4000, 180, 0);
+                push();
+                fill(74, 124, 142, alpha); // dusty teal
+                noStroke();
+                ellipse(width / 2, 20, 12, 12);
+                fill(244, 241, 232, alpha);
+                ellipse(width / 2, 20, 4, 4);
+                pop();
+            }
+        }
+
+        // --- CLASSES ---
+
+        class Capsule {
+            constructor(quadrant) {
+                // Start slightly offscreen
+                let edge = floor(random(4));
+                this.pos = createVector(
+                    edge === 0 || edge === 2 ? random(width) : (edge === 1 ? width + 100 : -100),
+                    edge === 1 || edge === 3 ? random(height) : (edge === 2 ? height + 100 : -100)
+                );
+                
+                this.quadrant = quadrant;
+                this.baseW = random(80, 180);
+                this.baseH = random(40, 90);
+                this.rot = random(TWO_PI);
+                this.baseRotSpeed = random(0.003, 0.008) * (random() > 0.5 ? 1 : -1);
+                
+                let hexCol = random(PALETTE);
+                this.baseCol = color(hexCol);
+                this.baseCol.setAlpha(170); // ~65% opacity
+                this.col = color(hexCol);
+                this.col.setAlpha(170);
+                
+                this.nid = random(1000); // Noise offset
+                this.hist = [];
+                this.target = this.getQuadrantTarget();
+                this.vel = createVector(0,0);
+            }
+
+            getQuadrantTarget() {
+                let cx = width / 2;
+                let cy = height / 2;
+                switch(this.quadrant) {
+                    case 0: return createVector(cx/2, cy/2);
+                    case 1: return createVector(cx + cx/2, cy/2);
+                    case 2: return createVector(cx/2, cy + cy/2);
+                    case 3: return createVector(cx + cx/2, cy + cy/2);
+                }
+                return createVector(cx, cy);
+            }
+
+            update(phase, t, ripples) {
+                // Determine target based on phase
+                if (phase === 1) {
+                    this.target = this.getQuadrantTarget();
+                    // Add some drift
+                    this.target.x += (noise(this.nid, t*0.0001) - 0.5) * 200;
+                    this.target.y += (noise(this.nid + 100, t*0.0001) - 0.5) * 200;
+                } else if (phase === 2) {
+                    // Compress to center
+                    let angle = noise(this.nid, t*0.0002) * TWO_PI;
+                    let rad = noise(this.nid+200, t*0.0001) * 280;
+                    this.target.x = width/2 + cos(angle)*rad;
+                    this.target.y = height/2 + sin(angle)*rad;
+                } else {
+                    // Scatter to edges
+                    let angle = map(this.nid, 0, 1000, 0, TWO_PI);
+                    this.target.x = width/2 + cos(angle) * (width/2 + 100);
+                    this.target.y = height/2 + sin(angle) * (height/2 + 100);
+                }
+
+                // Apply Ripple Forces
+                let externalForce = createVector(0,0);
+                for (let r of ripples) {
+                    let d = p5.Vector.dist(this.pos, r.pos);
+                    if (d < 350) {
+                        let forceMag = 1.8 * pow(1 - (d/350), 2);
+                        let dir = p5.Vector.sub(this.pos, r.pos).normalize();
+                        externalForce.add(dir.mult(forceMag));
+                    }
+                }
+
+                // Movement math
+                let desired = p5.Vector.sub(this.target, this.pos);
+                let speedMod = phase === 2 ? 0.02 : (phase === 3 ? 0.01 : 0.005);
+                desired.mult(speedMod);
+                
+                this.vel.lerp(desired, 0.05);
+                this.vel.add(externalForce);
+                this.vel.limit(6);
+                this.pos.add(this.vel);
+
+                // Rotation
+                let currentRotSpeed = this.baseRotSpeed * rotMultiplier;
+                if (phase === 2) currentRotSpeed *= 2.0;
+                if (phase === 3) currentRotSpeed *= 0.6;
+                this.rot += currentRotSpeed;
+
+                // History for trails (record every few frames to save memory)
+                if (frameCount % 3 === 0) {
+                    this.hist.push({x: this.pos.x, y: this.pos.y, r: this.rot});
+                    let maxHist = phase === 3 ? 22 : 12;
+                    if (this.hist.length > maxHist) this.hist.shift();
+                }
+            }
+
+            drawTrails() {
+                noStroke();
+                let alpha = 20; // ~8% opacity
+                fill(red(this.col), green(this.col), blue(this.col), alpha);
+                for (let i = 0; i < this.hist.length; i++) {
+                    let h = this.hist[i];
+                    this.renderGeometry(h.x, h.y, h.r, this.nid, 0, 1.0); // No noise on trails to save compute
+                }
+            }
+
+            drawBody(t) {
+                fill(this.col);
+                noStroke();
+                let breath = 1.0 + sin(t * 0.002 + this.nid) * 0.08;
+                this.renderGeometry(this.pos.x, this.pos.y, this.rot, this.nid + t*0.001, noiseMultiplier, breath);
+            }
+
+            renderGeometry(tx, ty, tr, nOff, nMod, scaleMod) {
+                push();
+                translate(tx, ty);
+                rotate(tr);
+                scale(scaleMod);
+
+                beginShape();
+                let pts = 24;
+                let r = this.baseH / 2;
+                let straightL = max(0, this.baseW - this.baseH);
+                
+                for (let i = 0; i < pts + 3; i++) {
+                    let ang = (i % pts) / pts * TWO_PI;
+                    let px, py;
+                    
+                    // Build ideal pill shape
+                    if (ang < PI/2 || ang > 3*PI/2) {
+                        px = straightL/2 + r * cos(ang);
+                        py = r * sin(ang);
+                    } else {
+                        px = -straightL/2 + r * cos(ang);
+                        py = r * sin(ang);
+                    }
+
+                    // Apply noise displacement outward from local center
+                    if (nMod > 0) {
+                        let n = (noise(px*0.03 + nOff, py*0.03 + nOff) - 0.5) * 24 * nMod;
+                        let mag = sqrt(px*px + py*py) || 1;
+                        px += (px/mag) * n;
+                        py += (py/mag) * n;
+                    }
+
+                    curveVertex(px, py);
+                }
+                endShape();
+                pop();
+            }
+        }
+
+        class Granule {
+            constructor() {
+                this.pos = createVector(random(width), random(height));
+                this.vel = p5.Vector.random2D().mult(0.4);
+                this.size = random(6, 12);
+                this.nid = random(1000);
+                
+                // Pre-calculate irregular polygon vertices
+                this.verts = [];
+                for(let i=0; i<6; i++) {
+                    let a = (i/6) * TWO_PI;
+                    let r = this.size * random(0.6, 1.2);
+                    this.verts.push(createVector(cos(a)*r, sin(a)*r));
+                }
+            }
+
+            update(phase, t, capsules) {
+                if (phase === 1) {
+                    // Brownian drift
+                    if (frameCount % 12 === 0) {
+                        this.vel.add(p5.Vector.random2D().mult(0.4)).limit(1.0);
+                    }
+                } else if (phase === 2) {
+                    // Halo attraction to nearest capsule
+                    let nearest = null;
+                    let minDist = Infinity;
+                    for (let c of capsules) {
+                        let d = p5.Vector.dist(this.pos, c.pos);
+                        if (d < minDist) { minDist = d; nearest = c; }
+                    }
+                    if (nearest && minDist < 150) {
+                        let dir = p5.Vector.sub(nearest.pos, this.pos).normalize();
+                        // Target a radius slightly larger than capsule
+                        if (minDist > nearest.baseW/2 + 20) {
+                            this.vel.lerp(dir.mult(0.8), 0.1);
+                        } else {
+                            // Orbit/Tangent force
+                            this.vel.lerp(createVector(-dir.y, dir.x).mult(1.5), 0.1);
+                        }
+                    }
+                } else {
+                    // Phase 3 fade/drift
+                    this.vel.mult(0.98); // Slow down
+                }
+
+                this.pos.add(this.vel);
+                
+                // Wrap edges
+                if (this.pos.x < 0) this.pos.x = width;
+                if (this.pos.x > width) this.pos.x = 0;
+                if (this.pos.y < 0) this.pos.y = height;
+                if (this.pos.y > height) this.pos.y = 0;
+            }
+
+            draw() {
+                push();
+                translate(this.pos.x, this.pos.y);
+                rotate(noise(this.nid, millis()*0.001) * TWO_PI);
+                fill(74, 124, 142, 100); // Dusty teal, translucent
+                noStroke();
+                beginShape();
+                for (let i = 0; i < this.verts.length; i++) {
+                    let v = this.verts[i];
+                    let nv = this.verts[(i+1)%this.verts.length];
+                    // Quadratic vertex for soft corners
+                    let cx = (v.x + nv.x)/2;
+                    let cy = (v.y + nv.y)/2;
+                    if (i===0) vertex(cx, cy);
+                    quadraticVertex(nv.x, nv.y, (nv.x + this.verts[(i+2)%this.verts.length].x)/2, (nv.y + this.verts[(i+2)%this.verts.length].y)/2);
+                }
+                endShape(CLOSE);
+                pop();
+            }
+        }
+
+        class Ripple {
+            constructor(x, y, t) {
+                this.pos = createVector(x, y);
+                this.startTime = t;
+                this.duration = 4000; // 240 frames approx
+                this.isDead = false;
+                this.particles = [];
+                for(let i=0; i<30; i++) {
+                    this.particles.push({
+                        p: createVector(x, y),
+                        v: p5.Vector.random2D().mult(random(1.5, 3.0)),
+                        s: random(3, 8)
+                    });
+                }
+            }
+
+            update(t) {
+                if (t - this.startTime > this.duration) {
+                    this.isDead = true;
+                }
+                for(let p of this.particles) {
+                    p.p.add(p.v);
+                }
+            }
+
+            draw() {
+                let age = millis() - this.startTime;
+                let alpha = map(age, 0, this.duration, 200, 0, true);
+                noStroke();
+                fill(232, 116, 81, alpha); // Coral orange
+                for(let p of this.particles) {
+                    beginShape();
+                    for(let i=0; i<4; i++) {
+                        let a = (i/4)*TWO_PI;
+                        curveVertex(p.p.x + cos(a)*p.s, p.p.y + sin(a)*p.s);
+                    }
+                    endShape(CLOSE);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
