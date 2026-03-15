@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Void Divisions</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #e8e8e4;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<script>
+const C_VOID = [13, 13, 13];
+const C_BONE = [244, 244, 240];
+const C_SHAD = [26, 26, 26];
+const C_OFF  = [232, 232, 228];
+
+let voids = [];
+let containers = [];
+let tLoop = 0;
+let lastMillis = 0;
+let phase2 = false, sub1 = false, sub2 = false, phase3 = false, sub3 = false;
+let bgLayer;
+let lastPulse = 0;
+
+class VoidBody {
+    constructor(x, y, r, cid) {
+        this.pos = createVector(x, y);
+        this.vel = createVector(0, 0);
+        this.r = 0;
+        this.targetR = r;
+        this.cid = cid;
+        this.seed = random(1000);
+        this.breathPhase = random(TWO_PI);
+        this.dead = false;
+        this.deathStart = 0;
+    }
+
+    update(t) {
+        if (this.dead) return;
+        this.r = lerp(this.r, this.targetR, 0.05);
+
+        let angle = noise(this.pos.x * 0.004, this.pos.y * 0.004, t * 0.0002) * TWO_PI * 2.4;
+        let flow = p5.Vector.fromAngle(angle).mult(1.5);
+        this.vel.mult(0.92).add(p5.Vector.mult(flow, 0.08));
+
+        let c = containers.find(cont => cont.id === this.cid);
+        if (c && c.opacity > 50) {
+            let d = p5.Vector.dist(this.pos, c.pos);
+            let cr = (c.rx + c.ry) * 0.5;
+            if (d > cr * 0.4) {
+                let tether = p5.Vector.sub(c.pos, this.pos).normalize().mult(map(d, cr * 0.4, cr, 0, 0.5, true));
+                this.vel.add(tether);
+            }
+        }
+        
+        this.vel.limit(4);
+        this.pos.add(this.vel);
+    }
+
+    display(t, gFade) {
+        let life = gFade;
+        if (this.dead) {
+            life *= (1 - constrain((t - this.deathStart) / 4000, 0, 1));
+            if (life <= 0) return;
+        }
+
+        let breath = 1 + sin(t * 0.002 + this.breathPhase) * 0.08;
+        let currentR = this.r * breath;
+
+        push();
+        translate(this.pos.x, this.pos.y);
+        noStroke();
+        let opacities = [255, 150, 75];
+        let scales = [1, 0.9, 0.8];
+
+        for (let j = 0; j < 3; j++) {
+            fill(C_VOID[0], C_VOID[1], C_VOID[2], opacities[j] * life);
+            beginShape();
+            for (let i = 0; i <= 22; i++) {
+                let a = (i % 20) / 20 * TWO_PI;
+                let nx = (noise(cos(a) * 0.8 + this.seed, sin(a) * 0.8 + this.seed, t * 0.0002 + j * 10) - 0.5) * 20;
+                let rad = currentR * scales[j] + nx;
+                curveVertex(cos(a) * rad, sin(a) * rad);
+            }
+            endShape();
+        }
+        pop();
+    }
+}
+
+class ContainerRing {
+    constructor(x, y, rx, ry, rot, id) {
+        this.pos = createVector(x, y);
+        this.targetPos = this.pos.copy();
+        this.rx = rx;
+        this.ry = ry;
+        this.rot = rot;
+        this.id = id;
+        this.seedOuter = random(1000);
+        this.seedInner = random(1000);
+        this.opacity = 0;
+        this.targetOpacity = 255;
+    }
+
+    update(t) {
+        this.opacity = lerp(this.opacity, this.targetOpacity, 0.03);
+        this.pos.lerp(this.targetPos, 0.015);
+    }
+
+    display(t, gFade) {
+        let currentOp = this.opacity * gFade;
+        if (currentOp < 1) return;
+
+        push();
+        translate(this.pos.x, this.pos.y);
+        rotate(this.rot);
+        fill(C_BONE[0], C_BONE[1], C_BONE[2], currentOp);
+        noStroke();
+        
+        beginShape(TRIANGLE_STRIP);
+        for (let i = 0; i <= 30; i++) {
+            let a = (i % 30) / 30 * TWO_PI;
+            let cx = cos(a), sy = sin(a);
+            let nxO = (noise(cx * 0.5 + this.seedOuter, sy * 0.5 + this.seedOuter, t * 0.0002) - 0.5) * 30;
+            let nxI = (noise(cx * 0.5 + this.seedInner, sy * 0.5 + this.seedInner, t * 0.0002) - 0.5) * 20;
+            let thick = 18 + sin(t * 0.001 + this.id) * 4;
+
+            vertex(cx * (this.rx + nxO), sy * (this.ry + nxO));
+            vertex(cx * (this.rx - thick + nxI), sy * (this.ry - thick + nxI));
+        }
+        endShape();
+        pop();
+    }
+}
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    bgLayer = createGraphics(windowWidth, windowHeight);
+    resetSketch();
+}
+
+function resetSketch() {
+    lastMillis = millis();
+    tLoop = 0;
+    lastPulse = 0;
+    phase2 = sub1 = sub2 = phase3 = sub3 = false;
+    voids = [];
+    containers = [];
+    
+    bgLayer.background(C_OFF[0], C_OFF[1], C_OFF[2]);
+    let c0 = new ContainerRing(width / 2, height / 2, 210, 210, 0, 0);
+    c0.opacity = 255;
+    containers.push(c0);
+    voids.push(new VoidBody(width / 2, height / 2, 130, 0));
+}
+
+function triggerPhase2() {
+    phase2 = true;
+    let c0 = containers.find(c => c.id === 0);
+    if (c0) c0.targetOpacity = 0;
+    
+    let c1 = new ContainerRing(width / 2, height / 2, 230, 160, 0, 1);
+    let c2 = new ContainerRing(width / 2, height / 2, 230, 160, TWO_PI / 3, 2);
+    let c3 = new ContainerRing(width / 2, height / 2, 230, 160, TWO_PI * 2 / 3, 3);
+    containers.push(c1, c2, c3);
+}
+
+function triggerSub1() {
+    sub1 = true;
+    if (voids.length === 0) return;
+    let parent = voids[0];
+    parent.targetR = 50; 
+    parent.cid = 1; 
+    
+    for (let i = 0; i < 2; i++) {
+        let a = TWO_PI / 3 * (i + 1); 
+        let nv = new VoidBody(parent.pos.x + cos(a) * 40, parent.pos.y + sin(a) * 40, 50, i + 2);
+        nv.vel = p5.Vector.fromAngle(a).mult(8);
+        voids.push(nv);
+    }
+    parent.vel = p5.Vector.fromAngle(0).mult(8);
+}
+
+function triggerSub2() {
+    sub2 = true;
+    let len = voids.length; 
+    for (let i = 0; i < len; i++) {
+        let v = voids[i];
+        v.targetR = 35;
+        let a = random(TWO_PI);
+        let nv = new VoidBody(v.pos.x + cos(a) * 15, v.pos.y + sin(a) * 15, 30, v.cid); 
+        nv.vel = p5.Vector.fromAngle(a).mult(6);
+        v.vel = p5.Vector.fromAngle(a + PI).mult(6);
+        voids.push(nv);
+    }
+}
+
+function triggerPhase3() {
+    phase3 = true;
+    let c1 = containers.find(c => c.id === 1);
+    let c2 = containers.find(c => c.id === 2);
+    let c3 = containers.find(c => c.id === 3);
+    
+    if (c1) c1.targetPos = createVector(width * 0.25, height * 0.25);
+    if (c2) c2.targetPos = createVector(width * 0.82, height * 0.5);
+    if (c3) c3.targetPos = createVector(width * 0.7, height * 0.78);
+}
+
+function triggerSub3() {
+    sub3 = true;
+    if (voids.length > 0) {
+        voids[0].dead = true;
+        voids[0].deathStart = tLoop;
+    }
+    
+    let activeVoids = voids.filter(v => !v.dead).sort((a, b) => b.r - a.r);
+    let smalls = activeVoids.slice(-3);
+    
+    for (let v of smalls) {
+        v.targetR = 25; 
+        let a = random(TWO_PI);
+        let nv = new VoidBody(v.pos.x + cos(a) * 10, v.pos.y + sin(a) * 10, 20, v.cid);
+        nv.vel = p5.Vector.fromAngle(a).mult(5);
+        voids.push(nv);
+    }
+}
+
+function updateBg(t) {
+    if (frameCount % 10 === 0) {
+        bgLayer.noStroke();
+        bgLayer.fill(C_OFF[0], C_OFF[1], C_OFF[2], 8);
+        bgLayer.rect(0, 0, width, height);
+    }
+    
+    bgLayer.fill(C_SHAD[0], C_SHAD[1], C_SHAD[2], 6);
+    bgLayer.noStroke();
+    for (let i = 0; i < 4; i++) {
+        bgLayer.push();
+        bgLayer.translate(random(width), random(height));
+        bgLayer.beginShape();
+        let r = random(4, 12);
+        for (let j = 0; j <= 8; j++) {
+            let a = ((j % 6) / 6) * TWO_PI;
+            bgLayer.curveVertex(cos(a) * r + random(-3, 3), sin(a) * r + random(-3, 3));
+        }
+        bgLayer.endShape();
+        bgLayer.pop();
+    }
+}
+
+function drawThreads(t, gFade) {
+    noFill();
+    for (let i = 0; i < voids.length; i++) {
+        for (let j = i + 1; j < voids.length; j++) {
+            let v1 = voids[i], v2 = voids[j];
+            if (v1.dead || v2.dead) continue;
+            
+            let d = p5.Vector.dist(v1.pos, v2.pos);
+            let edgeDist = d - v1.r - v2.r;
+            if (edgeDist < 60) {
+                let sw = map(edgeDist, 60, -20, 0, 3.5, true);
+                strokeWeight(sw);
+                stroke(C_SHAD[0], C_SHAD[1], C_SHAD[2], 150 * gFade * (sw / 3.5));
+                
+                beginShape();
+                let pts = 6;
+                for (let k = 0; k <= pts; k++) {
+                    let pt = p5.Vector.lerp(v1.pos, v2.pos, k / pts);
+                    if (k > 0 && k < pts) {
+                        let offset = (noise(pt.x * 0.01, pt.y * 0.01, t * 0.0005) - 0.5) * 40;
+                        let perp = createVector(-(v2.pos.y - v1.pos.y), v2.pos.x - v1.pos.x).normalize().mult(offset);
+                        pt.add(perp);
+                    }
+                    curveVertex(pt.x, pt.y);
+                    if (k === 0 || k === pts) curveVertex(pt.x, pt.y);
+                }
+                endShape();
+            }
+        }
+    }
+}
+
+function draw() {
+    let currentMillis = millis();
+    let dt = currentMillis - lastMillis;
+    lastMillis = currentMillis;
+    tLoop += dt;
+
+    if (tLoop > 70000) resetSketch();
+
+    if (tLoop > 12000 && !phase2) triggerPhase2();
+    if (tLoop > 15000 && !sub1) triggerSub1();
+    if (tLoop > 25000 && !sub2) triggerSub2();
+    if (tLoop > 35000 && !phase3) triggerPhase3();
+    if (tLoop > 50000 && !sub3) triggerSub3();
+
+    if (tLoop - lastPulse > 8400) {
+        for (let v of voids) v.breathPhase = 0;
+        lastPulse = tLoop;
+    }
+
+    let globalFade = 1;
+    if (tLoop > 66000) {
+        globalFade = constrain(map(tLoop, 66000, 69500, 1, 0), 0, 1);
+    }
+
+    if (!phase2 && containers.length > 0) {
+        let c0 = containers.find(c => c.id === 0);
+        if (c0) {
+            c0.rx = 210 - sin(tLoop * 0.001) * 15;
+            c0.ry = 210 - sin(tLoop * 0.001) * 15;
+        }
+        if (voids[0]) voids[0].targetR = 130 + sin(tLoop * 0.001) * 40;
+    }
+
+    background(C_OFF[0], C_OFF[1], C_OFF[2]);
+    updateBg(tLoop);
+    image(bgLayer, 0, 0);
+
+    for (let i = containers.length - 1; i >= 0; i--) {
+        let c = containers[i];
+        c.update(tLoop);
+        c.display(tLoop, globalFade);
+        if (c.opacity < 1 && c.targetOpacity === 0) {
+            containers.splice(i, 1);
+        }
+    }
+
+    drawThreads(tLoop, globalFade);
+
+    for (let i = voids.length - 1; i >= 0; i--) {
+        let v = voids[i];
+        v.update(tLoop);
+        v.display(tLoop, globalFade);
+        if (v.dead && (tLoop - v.deathStart) > 4000) {
+            voids.splice(i, 1);
+        }
+    }
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+    bgLayer.resizeCanvas(windowWidth, windowHeight);
+    bgLayer.background(C_OFF[0], C_OFF[1], C_OFF[2]);
+    
+    if (phase3) {
+        triggerPhase3();
+    } else if (!phase2) {
+        let c0 = containers.find(c => c.id === 0);
+        if (c0) {
+            c0.pos = createVector(width / 2, height / 2);
+            c0.targetPos = createVector(width / 2, height / 2);
+        }
+    }
+}
+</script>
+</body>
+</html>
