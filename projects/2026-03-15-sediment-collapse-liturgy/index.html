@@ -1,263 +1,283 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Sediment Collapse Liturgy</title>
-<style>
-    body { margin: 0; padding: 0; overflow: hidden; background-color: #0d0d0f; }
-    canvas { display: block; }
-</style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
-<script>
-let layers = [];
-let lastMouseTime = 0;
-let clickState = { active: false, start: 0, targets: [] };
-let lastFcTime = 0, isSmooth = true;
-
-const easeInQuad = t => t * t;
-const easeInOutCubic = t => t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
-const easeOutElastic = t => {
-    if (t === 0 || t === 1) return t;
-    return pow(2, -10 * t) * sin((t * 10 - 0.75) * (2 * Math.PI) / 3) + 1;
-};
-
-class Stratum {
-    constructor(idx) {
-        this.idx = idx;
-        this.bw = map(idx, 0, 6, 380, 180);
-        this.bh = map(idx, 0, 6, 95, 35);
-        this.poff = idx * 0.7;
-        this.seed = idx * 2.719;
-        this.noff = 0;
-
-        this.pts = [];
-        for (let i = 0; i < 28; i++) {
-            let a = map(i, 0, 28, 0, TWO_PI);
-            this.pts.push({ nx: cos(a), ny: sin(a), nseed: this.seed + i * 0.347 });
-        }
-
-        this.grains = [];
-        for (let i = 0; i < 16; i++) {
-            let pts = [];
-            let gseed = this.seed + i * 1.234;
-            for (let j = 0; j < 28; j++) {
-                let a = map(j, 0, 28, 0, TWO_PI);
-                pts.push({ nx: cos(a), ny: sin(a), nseed: gseed + j * 0.1 });
-            }
-            this.grains.push({
-                scl: random(0.5, 0.8),
-                ox: random(-0.3, 0.3),
-                oy: random(-0.3, 0.3),
-                pts: pts,
-                gseed: gseed
-            });
-        }
+  <meta charset="UTF-8">
+  <title>Sediment Collapse Liturgy</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #0d0d0f;
     }
-
-    initPos(w, h) {
-        this.bx = w / 2;
-        this.by = h / 2 + 180 - this.idx * 60;
+    canvas {
+      display: block;
     }
-
-    drawLayer(st, depth) {
-        this.noff += st.inc;
-        push();
-        translate(st.x, st.y);
-        rotate(st.rot);
-        scale(st.scale);
-
-        fill(244 * depth, 241 * depth, 237 * depth);
-        noStroke();
-        this.drawPoly(this.pts, st.w / 2, st.h / 2, st.amp, st.freq, this.noff);
-
-        fill(244, 241, 237, 25);
-        for (let g of this.grains) {
-            push();
-            translate(g.ox * st.w, g.oy * st.h);
-            let gnoff = this.noff + (g.gseed % 10);
-            this.drawPoly(g.pts, (st.w / 2) * g.scl, (st.h / 2) * g.scl, st.amp, st.freq, gnoff);
-            pop();
-        }
-        pop();
-    }
-
-    drawPoly(pts, rx, ry, amp, freq, noffset) {
-        beginShape();
-        for (let i = 0; i < pts.length + 3; i++) {
-            let p = pts[i % pts.length];
-            let bx = p.nx * rx;
-            let by = p.ny * ry;
-            let nx = bx * freq + noffset;
-            let ny = by * freq + noffset;
-            let nv = (noise(nx, ny, p.nseed % 100) * 2 - 1) * amp;
-            let ang = atan2(by, bx);
-            curveVertex(bx + cos(ang) * nv, by + sin(ang) * nv);
-        }
-        endShape();
-    }
-}
-
-function setup() {
-    createCanvas(windowWidth, windowHeight, P2D);
-    for (let i = 0; i < 7; i++) {
-        let l = new Stratum(i);
-        l.initPos(width, height);
-        layers.push(l);
-    }
-    lastMouseTime = millis();
-}
-
-function windowResized() {
-    resizeCanvas(windowWidth, windowHeight);
-    layers.forEach(l => l.initPos(width, height));
-}
-
-function mouseMoved() {
-    lastMouseTime = millis();
-}
-
-function mousePressed() {
-    clickState.active = true;
-    clickState.start = millis();
-    clickState.targets = layers.map(() => ({ rot: random(-PI / 2, PI / 2) }));
-}
-
-function drawInteractionIndicator() {
-    let t = millis();
-    if (t > 4000) return;
-    push();
-    noStroke();
-    fill(244, 241, 237, map(t, 0, 4000, 180, 0));
-    translate(width / 2, 20);
-    beginShape();
-    vertex(0, -5); vertex(5, 0); vertex(0, 5); vertex(-5, 0);
-    endShape(CLOSE);
-    ellipse(-12, 0, 3, 3);
-    ellipse(12, 0, 3, 3);
-    pop();
-}
-
-function draw() {
-    let time = millis();
-    let cycle = time % 120000;
-
-    if (time - lastFcTime > 2000) {
-        let fr = frameRate();
-        if (fr < 50 && isSmooth) { noSmooth(); isSmooth = false; }
-        else if (fr >= 55 && !isSmooth) { smooth(); isSmooth = true; }
-        lastFcTime = time;
-    }
-
-    let mX = mouseX, mY = mouseY;
-    if (time - lastMouseTime > 8000) {
-        mX = width / 2;
-        mY = height / 3;
-    }
-    
-    let freqMult = map(mX, 0, width, 0.5, 2.5, true);
-    let rotBoost = map(mY, 0, height, 0, 25, true) * PI / 180;
-
-    background(13, 13, 15);
-
-    for (let i = 0; i < 7; i++) {
-        let l = layers[i];
-        let st = { x: l.bx, y: l.by, w: l.bw, h: l.bh, rot: 0, scale: 1, amp: 7.5, freq: 0.015, inc: 0.0008 };
-
-        let driftOffsets = [0, -40, 65, -85, 110, -120, 95];
-        let collY = [height * 0.95, height * 0.88, height * 0.81, height * 0.74, height * 0.68, height * 0.62, height * 0.57];
-        let collRot = [3, -7, 12, -15, 9, -5, 0];
-        let p2RotMult = [0, 0, 0, 0, 2, 3, 4];
-
-        let s1 = 1.01 + sin(time * 0.0013 + l.poff) * 0.03;
-        let s2 = 1.01 + sin(time * 0.0013 + l.poff) * 0.06;
-        let wob = sin(time * 0.0012 + l.seed) * 1.5;
-
-        let p1State = { x: l.bx, y: l.by + wob, w: l.bw, h: l.bh, rot: 0, scale: s1, amp: 7.5, freq: 0.015, inc: 0.0008 };
-
-        let p2T = easeInOutCubic(constrain((cycle - 30000) / 15000, 0, 1));
-        let p2R = sin(time * 0.00008 + l.seed) * p2RotMult[i] * PI / 180;
-        let p2State = {
-            x: l.bx + driftOffsets[i], y: l.by + wob, w: l.bw, h: l.bh,
-            rot: p2R, scale: s2, amp: 15, freq: 0.06, inc: 0.002
-        };
-
-        let holdState = {
-            x: width / 2, y: collY[i], w: l.bw * 1.1, h: l.bh * 0.8,
-            rot: collRot[i] * PI / 180, scale: s2, amp: 20, freq: 0.08, inc: 0.004
-        };
-
-        if (cycle < 30000) {
-            st = p1State;
-        } else if (cycle < 75000) {
-            st.x = lerp(p1State.x, p2State.x, p2T);
-            st.y = p1State.y;
-            st.w = p1State.w; st.h = p1State.h;
-            st.rot = lerp(p1State.rot, p2State.rot, p2T);
-            st.scale = lerp(p1State.scale, p2State.scale, p2T);
-            st.amp = lerp(p1State.amp, p2State.amp, p2T);
-            st.freq = lerp(p1State.freq, p2State.freq, p2T);
-            st.inc = lerp(p1State.inc, p2State.inc, p2T);
-        } else {
-            let collT = easeInQuad(constrain((cycle - 75000) / 8000, 0, 1));
-            let rotT = easeInQuad(constrain((cycle - 75000) / 12000, 0, 1));
-            let reconT = easeInOutCubic(constrain((cycle - 110000) / 6000, 0, 1));
-
-            if (cycle < 110000) {
-                st.x = lerp(p2State.x, holdState.x, collT);
-                st.y = lerp(p2State.y, holdState.y, collT);
-                st.w = lerp(p2State.w, holdState.w, collT);
-                st.h = lerp(p2State.h, holdState.h, collT);
-                st.rot = lerp(p2State.rot, holdState.rot, rotT);
-                st.scale = p2State.scale;
-                st.amp = lerp(p2State.amp, holdState.amp, collT);
-                st.freq = lerp(p2State.freq, holdState.freq, collT);
-                st.inc = lerp(p2State.inc, holdState.inc, collT);
-            } else {
-                st.x = lerp(holdState.x, p1State.x, reconT);
-                st.y = lerp(holdState.y, p1State.y, reconT);
-                st.w = lerp(holdState.w, p1State.w, reconT);
-                st.h = lerp(holdState.h, p1State.h, reconT);
-                st.rot = lerp(holdState.rot, p1State.rot, reconT);
-                st.scale = lerp(holdState.scale, p1State.scale, reconT);
-                st.amp = lerp(holdState.amp, p1State.amp, reconT);
-                st.freq = lerp(holdState.freq, p1State.freq, reconT);
-                st.inc = lerp(holdState.inc, p1State.inc, reconT);
-            }
-        }
-
-        st.freq *= freqMult;
-        st.rot += rotBoost;
-
-        let ampMult = 1;
-        if (clickState.active) {
-            let el = time - clickState.start;
-            if (el < 1500) {
-                let t = el / 1500;
-                st.x = lerp(st.x, width / 2, t);
-                st.y = lerp(st.y, height / 2, t);
-                st.rot = lerp(st.rot, clickState.targets[i].rot, t);
-                ampMult = 4;
-            } else if (el < 3500) {
-                let t = (el - 1500) / 2000;
-                let eT = easeOutElastic(t);
-                st.x = lerp(width / 2, st.x, eT);
-                st.y = lerp(height / 2, st.y, eT);
-                st.rot = lerp(clickState.targets[i].rot, st.rot, eT);
-                ampMult = map(eT, 0, 1, 4, 1);
-            } else {
-                clickState.active = false;
-            }
-        }
-        st.amp *= ampMult;
-
-        let depthFactor = map(i, 0, 6, 0.92, 1.0);
-        l.drawLayer(st, depthFactor);
-    }
-
-    drawInteractionIndicator();
-}
-</script>
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
 <body>
+  <script>
+    let layers = [];
+    let vTime = 0;
+    let lastRealTime = 0;
+    let mx, my;
+    let lastMouseMove = 0;
+
+    class Layer {
+      constructor(i) {
+        this.index = i;
+        this.w = map(i, 0, 6, 380, 180);
+        this.h = map(i, 0, 6, 95, 35);
+        
+        let yPer = [0.92, 0.8, 0.65, 0.5, 0.35, 0.25, 0.15];
+        this.anchorYPer = yPer[i];
+        
+        let rx = [45, 55, 65, 80, 70, 60, 50];
+        let ry = [25, 30, 35, 45, 40, 32, 28];
+        this.orbitRx = rx[i];
+        this.orbitRy = ry[i];
+        
+        let speeds = [0.0052, -0.0061, 0.0047, -0.0058, 0.0054, -0.0049, 0.0063];
+        this.orbitSpeed = speeds[i];
+        
+        let rSpeeds = [0.0008, -0.0011, 0.0013, -0.0009, 0.0012, -0.0010, 0.0014];
+        this.rotSpeed = rSpeeds[i];
+        
+        this.scaleOffset = i * 0.9;
+        this.seed = i * 271.9;
+        
+        let tx = [0.5, 0.2, 0.8, 0.05, 0.95, 0.2, 0.5];
+        let ty = [0.92, 0.8, 0.2, 0.5, 0.5, 0.08, 0.15];
+        this.tgtXPer = tx[i];
+        this.tgtYPer = ty[i];
+        
+        this.grains = [];
+        for (let j = 0; j < 16; j++) {
+          this.grains.push({
+            idx: j,
+            w: this.w * random(0.5, 0.8),
+            h: this.h * random(0.5, 0.8),
+            seed: this.seed + j * 123.4
+          });
+        }
+        
+        this.impulses = [];
+        this.currentRot = 0;
+        this.impRot = 0;
+        this.noiseOffset = 0;
+        this.px = 0;
+        this.py = 0;
+        this.scale = 1.0;
+        this.currentAmp = 0;
+        this.currentFreq = 0;
+      }
+
+      update(dt_ms, ampMult) {
+        let vf = (vTime % 120000) * 0.06;
+        let df = dt_ms * 0.06;
+        
+        let targetPx, targetPy, targetS, rotSpd, nAmpTarget, nFreqTarget, nIncSpd;
+        let cx = width / 2;
+        let cy = height / 2;
+        
+        let orbitAngle = vf * this.orbitSpeed + this.seed;
+        let basePx = cx + cos(orbitAngle) * this.orbitRx;
+        let basePy = height * this.anchorYPer + sin(orbitAngle) * this.orbitRy;
+        
+        if (vf < 2100) { 
+          targetPx = basePx; targetPy = basePy;
+          targetS = 0.99 + sin(vf * 0.0201 + this.scaleOffset) * 0.03;
+          rotSpd = this.rotSpeed;
+          nAmpTarget = 9; nFreqTarget = 0.02; nIncSpd = 0.0012;
+        } else if (vf < 3180) { 
+          let t = (vf - 2100) / 1080;
+          let e1 = t * t;
+          let e2 = t * t * t;
+          let startDist = dist(basePx, basePy, cx, cy);
+          let sa = atan2(basePy - cy, basePx - cx) + e1 * 4 * Math.PI;
+          let sr = startDist * (1 - e2);
+          targetPx = cx + cos(sa) * sr;
+          targetPy = cy + sin(sa) * sr;
+          targetS = lerp(1.0, 0.35, e2);
+          rotSpd = this.rotSpeed * (1 + e1 * 8);
+          nAmpTarget = lerp(9, 18, t); nFreqTarget = lerp(0.02, 0.09, t); nIncSpd = lerp(0.0012, 0.0035, t);
+        } else if (vf < 4320) { 
+          targetPx = cx; targetPy = cy;
+          targetS = 0.35; rotSpd = this.rotSpeed * 9;
+          nAmpTarget = 18; nFreqTarget = 0.09; nIncSpd = 0.0035;
+        } else if (vf < 4560) { 
+          let t = (vf - 4320) / 240;
+          let e1 = 1 - Math.pow(1 - t, 2);
+          targetPx = lerp(cx, width * this.tgtXPer, e1); 
+          targetPy = lerp(cy, height * this.tgtYPer, e1);
+          let elastic = Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI) / 3) + 1;
+          targetS = 0.35 + 0.65 * elastic; 
+          rotSpd = this.rotSpeed * 9 * (1 - (1 - Math.pow(1 - t, 3)));
+          nAmpTarget = lerp(18, 5, e1); nFreqTarget = lerp(0.09, 0.025, e1); nIncSpd = lerp(0.0035, 0.0006, e1);
+        } else if (vf < 5160) { 
+          targetPx = width * this.tgtXPer; targetPy = height * this.tgtYPer;
+          targetS = 1.0; rotSpd = 0;
+          nAmpTarget = 5; nFreqTarget = 0.025; nIncSpd = 0.0006;
+        } else if (vf < 5880) { 
+          let t = (vf - 5160) / 720;
+          let e1 = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+          targetPx = lerp(width * this.tgtXPer, basePx, e1); 
+          targetPy = lerp(height * this.tgtYPer, basePy, e1);
+          targetS = 1.0; rotSpd = lerp(0, this.rotSpeed, e1);
+          nAmpTarget = lerp(5, 9, e1); nFreqTarget = lerp(0.025, 0.02, e1); nIncSpd = lerp(0.0006, 0.0012, e1);
+          let targetRot = Math.round(this.currentRot / (2 * PI)) * 2 * PI;
+          this.currentRot = lerp(this.currentRot, targetRot, 0.02);
+        } else { 
+          targetPx = basePx; targetPy = basePy;
+          targetS = 0.99 + sin(vf * 0.0201 + this.scaleOffset) * 0.03;
+          rotSpd = this.rotSpeed;
+          nAmpTarget = 9; nFreqTarget = 0.02; nIncSpd = 0.0012;
+        }
+        
+        let impX = 0, impY = 0, clickSpike = 1.0;
+        this.impRot = 0;
+        for (let i = this.impulses.length - 1; i >= 0; i--) {
+          let imp = this.impulses[i];
+          let elapsed = vTime - imp.startTime;
+          if (elapsed < 2000) {
+            let t = elapsed / 2000;
+            let bump = Math.sin(t * Math.PI);
+            impX += Math.cos(imp.angle) * imp.mag * bump;
+            impY += Math.sin(imp.angle) * imp.mag * bump;
+            this.impRot += imp.rot * bump;
+            if (elapsed < 800) clickSpike = 2.5;
+          } else {
+            this.impulses.splice(i, 1);
+          }
+        }
+        
+        this.px = targetPx + impX;
+        this.py = targetPy + impY;
+        this.scale = targetS;
+        this.currentRot += rotSpd * df;
+        this.noiseOffset += nIncSpd * df;
+        this.currentAmp = nAmpTarget * ampMult * clickSpike;
+        this.currentFreq = nFreqTarget;
+      }
+
+      display() {
+        push();
+        translate(this.px, this.py);
+        rotate(this.currentRot + this.impRot);
+        scale(this.scale);
+        
+        fill(244, 241, 237);
+        stroke(26, 26, 28);
+        strokeWeight(1.5);
+        this.drawShape(this.w, this.h, this.seed, this.noiseOffset, this.currentAmp, this.currentFreq);
+        
+        noStroke();
+        for (let g of this.grains) {
+          if (g.idx % 2 === 0) fill(244, 241, 237, 25);
+          else fill(218, 213, 205, 25);
+          let gOff = this.noiseOffset + g.idx * 0.891;
+          this.drawShape(g.w, g.h, g.seed, gOff, this.currentAmp, this.currentFreq);
+        }
+        pop();
+      }
+
+      drawShape(w, h, seed, nOff, amp, freq) {
+        beginShape();
+        let pts = 28;
+        for (let i = 0; i < pts + 3; i++) {
+          let a = (i % pts) * TWO_PI / pts;
+          let bx = cos(a) * w / 2;
+          let by = sin(a) * h / 2;
+          let nx = (h / 2) * cos(a);
+          let ny = (w / 2) * sin(a);
+          let len = sqrt(nx * nx + ny * ny);
+          nx /= len; ny /= len;
+          
+          let n = noise(bx * freq + seed, by * freq + seed, nOff) * 2 - 1;
+          curveVertex(bx + nx * n * amp, by + ny * n * amp);
+        }
+        endShape();
+      }
+    }
+
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      noiseDetail(4, 0.5);
+      noiseSeed(12345);
+      randomSeed(9999);
+      
+      mx = width / 2; 
+      my = height / 2;
+      
+      for (let i = 0; i < 7; i++) {
+        layers.push(new Layer(i));
+      }
+    }
+
+    function draw() {
+      background(13, 13, 15);
+      
+      let now = millis();
+      let dt = now - lastRealTime;
+      lastRealTime = now;
+      
+      if (now - lastMouseMove > 8000) {
+        mx = lerp(mx, width * 0.45, 0.02);
+        my = lerp(my, height * 0.6, 0.02);
+      }
+      
+      let timeScale = map(my, 0, height, 0.25, 2.0, true);
+      let stepDt = dt * timeScale;
+      vTime += stepDt;
+      
+      let ampMult = map(mx, 0, width, 0.3, 3.5, true);
+      
+      for (let l of layers) {
+        l.update(stepDt, ampMult);
+        l.display();
+      }
+      
+      drawInteractionIndicator();
+    }
+
+    function mouseMoved() {
+      lastMouseMove = millis();
+      mx = mouseX;
+      my = mouseY;
+    }
+
+    function mousePressed() {
+      for (let l of layers) {
+        let d = dist(l.px, l.py, mx, my);
+        if (d < 300) {
+          let angle = atan2(l.py - my, l.px - mx);
+          let mag = map(d, 0, 300, 180, 30, true);
+          l.impulses.push({
+            startTime: vTime,
+            angle: angle,
+            mag: mag,
+            rot: random(-PI/4, PI/4)
+          });
+        }
+      }
+    }
+
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+    }
+
+    function drawInteractionIndicator() {
+      let alpha = map(millis(), 0, 4000, 180, 0, true);
+      if (alpha <= 0) return;
+      push();
+      fill(244, 241, 237, alpha);
+      noStroke();
+      textAlign(CENTER, TOP);
+      textSize(12);
+      text("◎ MOUSE DISTORTS  •  CLICK FRACTURES", width / 2, 20);
+      pop();
+    }
+  </script>
 </body>
 </html>
