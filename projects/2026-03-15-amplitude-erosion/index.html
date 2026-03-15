@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amplitude Erosion</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #f4f1ed;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+    <script>
+        // Palette
+        const PALETTE = {
+            bg: '#f4f1ed',
+            primary: '#0d0d0d',
+            secondary: '#1a1a1a',
+            accent: '#7a7a7a'
+        };
+
+        // System state
+        let blades = [];
+        let particles = [];
+        let attractors = [];
+        let shockwaves = [];
+        let grain = [];
+        
+        // Phase management
+        // 0: Stable, 1: Erosion, 2: Reconverging, 3: Holding
+        let state = 0;
+        let stateStart = 0;
+        
+        // Interaction variables
+        let tilt = 0, targetTilt = 0;
+        let grav = 0.08, targetGrav = 0.08;
+        let lastInteraction = -5000;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            colorMode(RGB);
+            noiseSeed(42);
+            generateGrain();
+            resetSystem();
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            generateGrain();
+            if (state === 0 || state === 3) resetSystem();
+        }
+
+        function generateGrain() {
+            grain = [];
+            for (let i = 0; i < 2000; i++) {
+                grain.push({
+                    x: random(width),
+                    y: random(height),
+                    s: random(1, 2.5),
+                    o: random(5, 15)
+                });
+            }
+        }
+
+        function resetSystem() {
+            blades = [];
+            particles = [];
+            attractors = [];
+            let numBlades = floor(map(width, 300, 1920, 30, 60, true));
+            let spacing = min((width * 0.6) / numBlades, 25);
+            let startX = width / 2 - (numBlades * spacing) / 2;
+
+            for (let i = 0; i < numBlades; i++) {
+                let envelope = sin(map(i, 0, numBlades - 1, 0, PI));
+                let h = 50 + Math.pow(envelope, 1.5) * (height * 0.3) + random(-15, 15);
+                let w = spacing * 0.7;
+                let x = startX + i * spacing;
+                let y = height / 2;
+                
+                // Erosion delay based on distance from edges (edges break first)
+                let distFromCenter = abs(i - numBlades / 2);
+                let delay = map(distFromCenter, numBlades / 2, 0, 0, 28000); 
+                blades.push(new Blade(x, y, w, h, i, delay));
+            }
+        }
+
+        function transition(newState) {
+            state = newState;
+            stateStart = millis();
+            
+            if (state === 0) {
+                resetSystem();
+            } else if (state === 2) {
+                // Generate new warped waveform attractors
+                attractors = [];
+                let numA = 10;
+                let w = width * 0.55;
+                let startX = width / 2 - w / 2;
+                for (let i = 0; i < numA; i++) {
+                    let x = startX + (i / (numA - 1)) * w;
+                    let envelope = sin(map(i, 0, numA - 1, 0, PI));
+                    let yOffset = sin(i * 1.5 + random(TWO_PI)) * 50 + random(-30, 30);
+                    let y = height / 2 + yOffset * envelope;
+                    attractors.push(createVector(x, y));
+                }
+            }
+        }
+
+        class Blade {
+            constructor(x, y, w, h, idx, delay) {
+                this.baseX = x;
+                this.y = y;
+                this.baseW = w;
+                this.h = h;
+                this.idx = idx;
+                this.delay = delay;
+                this.exploded = false;
+                this.vertices = [];
+                
+                let steps = 14;
+                for (let i = 0; i <= steps; i++) {
+                    let py = map(i, 0, steps, -h / 2, h / 2);
+                    this.vertices.push({ y: py, rx: w / 2, lx: -w / 2 });
+                }
+            }
+
+            update(t) {
+                let yOff = sin(t * 0.003 + this.idx * 0.2) * (8 + noise(this.idx) * 7);
+                let widthMult = 1 + Math.pow(sin(t * 0.0015), 3) * 0.15;
+                this.currentW = this.baseW * widthMult;
+                this.currentY = this.y + yOff;
+                this.rot = sin(t * 0.0025 + this.idx * 0.5) * 0.035;
+            }
+
+            display(t) {
+                push();
+                translate(this.baseX, this.currentY);
+                rotate(this.rot);
+                fill(PALETTE.primary);
+                noStroke();
+                
+                beginShape();
+                let steps = this.vertices.length - 1;
+                
+                // Top jagged edge
+                vertex(0 + (noise(this.baseX, t * 0.002) - 0.5) * 15, -this.h / 2 - 10);
+                
+                // Right side
+                for (let i = 0; i <= steps; i++) {
+                    let v = this.vertices[i];
+                    let nx = (noise(this.baseX, v.y * 0.02, t * 0.001) - 0.5) * 6;
+                    vertex(v.rx * (this.currentW / this.baseW) + nx, v.y);
+                }
+                
+                // Bottom jagged edge
+                vertex(0 + (noise(this.baseX + 50, t * 0.002) - 0.5) * 15, this.h / 2 + 10);
+                
+                // Left side
+                for (let i = steps; i >= 0; i--) {
+                    let v = this.vertices[i];
+                    let nx = (noise(this.baseX + 100, v.y * 0.02, t * 0.001) - 0.5) * 6;
+                    vertex(v.lx * (this.currentW / this.baseW) + nx, v.y);
+                }
+                endShape(CLOSE);
+                pop();
+            }
+
+            explode() {
+                this.exploded = true;
+                let numP = floor(map(this.h, 40, 300, 15, 60, true));
+                for (let i = 0; i < numP; i++) {
+                    let px = this.baseX + random(-this.baseW, this.baseW);
+                    let py = this.currentY + random(-this.h / 2, this.h / 2);
+                    particles.push(new Particle(px, py));
+                }
+            }
+        }
+
+        class Particle {
+            constructor(x, y) {
+                this.pos = createVector(x, y);
+                let angle = random(TWO_PI);
+                let speed = random(1.5, 4.5);
+                this.vel = createVector(cos(angle), sin(angle)).mult(speed);
+                this.acc = createVector(0, 0);
+                this.pts = [];
+                let sides = floor(random(4, 7));
+                for (let i = 0; i < sides; i++) {
+                    let a = map(i, 0, sides, 0, TWO_PI);
+                    let r = random(2, 6);
+                    this.pts.push(createVector(cos(a) * r, sin(a) * r));
+                }
+            }
+
+            applyForce(f) {
+                this.acc.add(f);
+            }
+
+            update(currentState, t) {
+                if (currentState === 1) { // Falling
+                    this.applyForce(createVector(0, grav));
+                    let nx = (noise(this.pos.x * 0.01, t * 0.002) - 0.5) * 0.8;
+                    this.applyForce(createVector(nx, 0));
+                } else if ((currentState === 2 || currentState === 3) && attractors.length > 0) { // Reconverging
+                    let nearest = attractors[0];
+                    let minDist = dist(this.pos.x, this.pos.y, nearest.x, nearest.y);
+                    for (let i = 1; i < attractors.length; i++) {
+                        let d = dist(this.pos.x, this.pos.y, attractors[i].x, attractors[i].y);
+                        if (d < minDist) {
+                            minDist = d;
+                            nearest = attractors[i];
+                        }
+                    }
+                    
+                    let dir = p5.Vector.sub(nearest, this.pos);
+                    let d = dir.mag();
+                    if (d > 10) {
+                        dir.normalize();
+                        let forceMag = constrain(250 / (d * d), 0, 0.45);
+                        this.applyForce(dir.copy().mult(forceMag));
+                        // Tangent for spiral
+                        let tangent = createVector(-dir.y, dir.x).mult(0.15);
+                        this.applyForce(tangent);
+                    } else {
+                        this.vel.mult(0.85); // Damping when clustered
+                    }
+                }
+                
+                this.vel.add(this.acc);
+                this.pos.add(this.vel);
+                this.vel.mult(0.97); // Global drag
+                this.acc.set(0, 0);
+            }
+
+            display(currentState) {
+                let s = (currentState === 2 || currentState === 3) ? 1.4 : 1.0;
+                fill(PALETTE.secondary);
+                noStroke();
+                push();
+                translate(this.pos.x, this.pos.y);
+                scale(s);
+                beginShape();
+                for (let p of this.pts) vertex(p.x, p.y);
+                endShape(CLOSE);
+                pop();
+            }
+        }
+
+        class Shockwave {
+            constructor(x, y) {
+                this.pos = createVector(x, y);
+                this.r = 0;
+                this.life = 70;
+                this.age = 0;
+            }
+
+            update() {
+                this.r += 9;
+                this.age++;
+            }
+
+            display() {
+                let alpha = map(this.age, 0, this.life, 200, 0);
+                noFill();
+                stroke(122, 122, 122, alpha);
+                strokeWeight(1.5);
+                beginShape();
+                for (let a = 0; a < TWO_PI; a += 0.4) {
+                    let nx = cos(a) * (this.r + noise(a, millis() * 0.005) * 15);
+                    let ny = sin(a) * (this.r + noise(a + 10, millis() * 0.005) * 15);
+                    vertex(this.pos.x + nx, this.pos.y + ny);
+                }
+                endShape(CLOSE);
+            }
+        }
+
+        function mouseMoved() {
+            if (abs(mouseX - pmouseX) > 2 || abs(mouseY - pmouseY) > 2) {
+                lastInteraction = millis();
+            }
+        }
+
+        function mousePressed() {
+            lastInteraction = millis();
+            
+            // Transform mouse coordinates back to un-rotated space for shockwave
+            let cx = width/2, cy = height/2;
+            let dx = mouseX - cx, dy = mouseY - cy;
+            let cosT = cos(-tilt), sinT = sin(-tilt);
+            let unrotX = cx + (dx * cosT - dy * sinT);
+            let unrotY = cy + (dx * sinT + dy * cosT);
+            
+            shockwaves.push(new Shockwave(unrotX, unrotY));
+            
+            if (state === 0 || state === 3) {
+                transition(1); // Force skip to erosion
+            } else if (state === 2 || state === 1) {
+                // Reverse clustering
+                for (let p of particles) {
+                    let dir = p5.Vector.sub(p.pos, createVector(unrotX, unrotY));
+                    let d = dir.mag();
+                    if (d < 300) {
+                        dir.normalize().mult(map(d, 0, 300, 8, 1));
+                        p.vel.add(dir);
+                    }
+                }
+            }
+        }
+
+        function drawInteractionIndicator(t) {
+            let alpha = map(t, 0, 4000, 180, 0, true);
+            if (alpha > 0) {
+                push();
+                translate(width / 2, 30);
+                fill(122, 122, 122, alpha);
+                noStroke();
+                rectMode(CENTER);
+                rect(0, 0, 16, 26, 8);
+                fill(244, 241, 237, alpha);
+                rect(0, -5, 2, 5, 1);
+                pop();
+            }
+        }
+
+        function draw() {
+            let t = millis();
+            background(PALETTE.bg);
+
+            // Subtle background texture
+            if (frameCount % 180 === 0) generateGrain();
+            noStroke();
+            for (let g of grain) {
+                fill(26, 26, 26, g.o);
+                rect(g.x, g.y, g.s, g.s);
+            }
+
+            // Input handling and passive fallback
+            let isPassive = (t - lastInteraction) > 5000;
+            if (!isPassive) {
+                targetTilt = map(mouseX, 0, width, -0.26, 0.26);
+                targetGrav = map(mouseY, 0, height, 0.02, 0.15);
+            } else {
+                targetTilt = 0;
+                targetGrav = 0.08 + sin(t * 0.008) * 0.03;
+            }
+            tilt = lerp(tilt, targetTilt, 0.05);
+            grav = lerp(grav, targetGrav, 0.05);
+
+            // Phase State Machine
+            // 0: Stable (15s), 1: Eroding (30s), 2: Reconverging (20s), 3: Hold (10s)
+            let elapsed = t - stateStart;
+            if (state === 0 && elapsed > 15000) transition(1);
+            else if (state === 1 && elapsed > 30000) transition(2);
+            else if (state === 2 && elapsed > 20000) transition(3);
+            else if (state === 3 && elapsed > 10000) transition(0);
+
+            push();
+            translate(width / 2, height / 2);
+            rotate(tilt);
+            translate(-width / 2, -height / 2);
+
+            // Update & Draw Elements
+            if (state === 0 || state === 1) {
+                for (let b of blades) {
+                    if (!b.exploded) {
+                        b.update(t);
+                        b.display(t);
+                        if (state === 1 && elapsed > b.delay) b.explode();
+                    }
+                }
+            }
+
+            for (let p of particles) {
+                p.update(state, t);
+                p.display(state);
+            }
+
+            for (let i = shockwaves.length - 1; i >= 0; i--) {
+                let sw = shockwaves[i];
+                sw.update();
+                sw.display();
+                for (let p of particles) {
+                    let d = dist(p.pos.x, p.pos.y, sw.pos.x, sw.pos.y);
+                    if (abs(d - sw.r) < 25) {
+                        let dir = p5.Vector.sub(p.pos, sw.pos).normalize().mult(0.8);
+                        p.applyForce(dir);
+                    }
+                }
+                if (sw.age > sw.life) shockwaves.splice(i, 1);
+            }
+
+            // Connection Threads (Spatial sort for performance)
+            if ((state === 1 || state === 2 || state === 3) && particles.length > 0) {
+                particles.sort((a, b) => a.pos.x - b.pos.x);
+                let maxD = map(grav, 0.02, 0.15, 65, 25);
+                let maxDSq = maxD * maxD;
+                
+                strokeWeight(1);
+                noFill();
+                for (let i = 0; i < particles.length; i++) {
+                    let p1 = particles[i];
+                    for (let j = 1; j < 18; j++) { // Check local neighborhood
+                        if (i + j >= particles.length) break;
+                        let p2 = particles[i + j];
+                        if (p2.pos.x - p1.pos.x > maxD) break; // Exit early if X dist is too far
+
+                        let dx = p1.pos.x - p2.pos.x;
+                        let dy = p1.pos.y - p2.pos.y;
+                        let dSq = dx * dx + dy * dy;
+                        
+                        if (dSq < maxDSq) {
+                            let alpha = map(dSq, 0, maxDSq, 180, 0);
+                            stroke(122, 122, 122, alpha);
+                            beginShape();
+                            vertex(p1.pos.x, p1.pos.y);
+                            let mx = (p1.pos.x + p2.pos.x) / 2 + (noise(p1.pos.x, t * 0.001) - 0.5) * 18;
+                            let my = (p1.pos.y + p2.pos.y) / 2 + (noise(p2.pos.y, t * 0.001) - 0.5) * 18;
+                            quadraticVertex(mx, my, p2.pos.x, p2.pos.y);
+                            endShape();
+                        }
+                    }
+                }
+            }
+            pop(); // End structural transformation
+
+            drawInteractionIndicator(t);
+        }
+    </script>
+</body>
+</html>
