@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reuleaux Morphology</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #e8e8e8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<script>
+const PALETTE = {
+    blackMain: '#0a0a0a',
+    grayBg: '#e8e8e8',
+    blackBands: '#1a1a1a',
+    whiteLight: '#f5f5f5',
+    blackMid: '#2a2a2a'
+};
+
+let vTime = 0;
+let isResetting = false;
+let resetStartT = 0, resetStartVTime = 0, resetStartAngle = 0;
+let orbitAngle = 0;
+let mouseRotOffset = 0;
+let hoverLerp = 0;
+let pMouseX = 0, pMouseY = 0;
+let anchors = [];
+let curveDisp = [{x:0, y:0}, {x:0, y:0}, {x:0, y:0}];
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    pixelDensity(2);
+    angleMode(DEGREES);
+    noiseSeed(random(10000));
+
+    for (let i = 0; i < 3; i++) {
+        anchors.push({ x: cos(i * 120) * 120, y: sin(i * 120) * 120 });
+    }
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+}
+
+function easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function getFlex(t) {
+    let cyc = t % 105;
+    if (cyc < 15) return 4;
+    if (cyc < 45) return lerp(4, 8, easeInOutCubic(constrain((cyc - 15) / 2, 0, 1)));
+    if (cyc < 90) return lerp(8, 12, easeInOutCubic(constrain((cyc - 45) / 2, 0, 1)));
+    return lerp(12, 4, easeInOutCubic(constrain((cyc - 90) / 15, 0, 1)));
+}
+
+function getRadius(t) {
+    let cyc = t % 105;
+    if (cyc < 45) return 15;
+    if (cyc < 90) return lerp(15, 22, easeInOutCubic(constrain((cyc - 45) / 10, 0, 1)));
+    return lerp(22, 15, easeInOutCubic(constrain((cyc - 90) / 15, 0, 1)));
+}
+
+function getScaleFactor(t) {
+    let cyc = t % 105;
+    let s = 1.0 + 0.05 * sin((millis() / 1000) * 12); // 30s cycle
+    if (cyc < 45) return 1.0;
+    if (cyc < 90) return lerp(1.0, s, easeInOutCubic(constrain((cyc - 45) / 2, 0, 1)));
+    return lerp(s, 1.0, easeInOutCubic(constrain((cyc - 90) / 15, 0, 1)));
+}
+
+function getDividerStroke(t) {
+    let cyc = t % 105;
+    if (cyc < 15) return map(sin((millis() / 1000) * 45), -1, 1, 3.5, 4.5); // 8s cycle
+    if (cyc < 45) return 4.0;
+    if (cyc < 90) return map(sin((millis() / 1000) * 24), -1, 1, 3, 6); // 15s cycle
+    return 4.0;
+}
+
+function getOuterStroke(t) {
+    let cyc = t % 105;
+    if (cyc < 15) return 3.5;
+    if (cyc < 45) return map(sin((millis() / 1000) * 30), -1, 1, 3, 5); // 12s cycle
+    if (cyc < 90) return map(sin((millis() / 1000) * 24), -1, 1, 3, 6);
+    return 3.5;
+}
+
+function getCurvePoints(i, cx, cy, eStartup) {
+    let ax = anchors[i].x;
+    let ay = anchors[i].y;
+    let dx = ax - cx;
+    let dy = ay - cy;
+    let distToCenter = sqrt(dx * dx + dy * dy);
+    let nx = distToCenter > 0 ? -dy / distToCenter : 0;
+    let ny = distToCenter > 0 ? dx / distToCenter : 0;
+
+    let mag = getFlex(vTime) * eStartup;
+    let nTime = vTime * 2;
+    let n1 = map(noise(i * 10, nTime), 0, 1, -1, 1);
+    let n2 = map(noise(i * 10 + 5, nTime), 0, 1, -1, 1);
+
+    return [
+        { x: cx, y: cy },
+        { x: cx + dx * 0.33 + nx * n1 * mag + curveDisp[i].x, y: cy + dy * 0.33 + ny * n1 * mag + curveDisp[i].y },
+        { x: cx + dx * 0.66 + nx * n2 * mag + curveDisp[i].x, y: cy + dy * 0.66 + ny * n2 * mag + curveDisp[i].y },
+        { x: ax, y: ay }
+    ];
+}
+
+function mousePressed() {
+    if (!isResetting) {
+        isResetting = true;
+        resetStartT = millis();
+        resetStartVTime = vTime;
+        resetStartAngle = orbitAngle;
+    }
+}
+
+function updateState() {
+    let dt = deltaTime / 1000;
+    
+    if (isResetting) {
+        let prog = (millis() - resetStartT) / 3000;
+        if (prog >= 1.0) {
+            isResetting = false;
+            vTime = 0;
+            orbitAngle = 0;
+            mouseRotOffset = 0;
+            for (let i = 0; i < 3; i++) curveDisp[i] = { x: 0, y: 0 };
+        } else {
+            let ease = easeInOutCubic(prog);
+            vTime = lerp(resetStartVTime, 0, ease);
+            orbitAngle = lerp(resetStartAngle, floor(resetStartAngle / 360) * 360, ease);
+            mouseRotOffset = lerp(mouseRotOffset, 0, ease);
+        }
+    } else {
+        vTime += dt;
+        let cyc = vTime % 105;
+        let speed = 54;
+        if (cyc >= 15 && cyc < 45) speed = 72;
+        else if (cyc >= 45 && cyc < 90) speed = 90;
+        orbitAngle += speed * dt;
+    }
+}
+
+function drawInteractionIndicator() {
+    let m = millis();
+    if (m > 4000) return;
+    let a = map(m, 0, 4000, 180, 0);
+    push();
+    fill(10, a);
+    noStroke();
+    translate(width / 2, 30);
+    rectMode(CENTER);
+    rect(0, 0, 12, 18, 6);
+    stroke(10, a);
+    strokeWeight(1.5);
+    line(0, -5, 0, 0);
+    pop();
+}
+
+function draw() {
+    let startup = constrain(millis() / 5000, 0, 1);
+    let eStartup = easeInOutCubic(startup);
+
+    if (frameCount <= 2) {
+        pMouseX = mouseX;
+        pMouseY = mouseY;
+    }
+
+    updateState();
+
+    let bgLuma = 232 + 7 * sin((millis() / 1000) * 14.4); // 25s wave
+    background(bgLuma);
+
+    let mx = mouseX - width / 2;
+    let my = mouseY - height / 2;
+    
+    // Mouse Interaction Updates
+    let isHover = dist(mx, my, 0, 0) < 120;
+    hoverLerp = lerp(hoverLerp, isHover ? 1 : 0, 0.1);
+
+    let vel = dist(mouseX, mouseY, pMouseX, pMouseY);
+    if (vel > 8 && !isResetting) {
+        let dx = mouseX - pMouseX;
+        let dy = mouseY - pMouseY;
+        let cross = dx * (-my) - dy * (-mx);
+        mouseRotOffset += (cross > 0 ? 3 : -3);
+    }
+    mouseRotOffset *= 0.95;
+
+    let r = getRadius(vTime) * eStartup;
+    let cx = cos(orbitAngle) * r;
+    let cy = sin(orbitAngle) * r;
+
+    // Repulsion
+    for (let i = 0; i < 3; i++) {
+        let midX = cx + (anchors[i].x - cx) * 0.5;
+        let midY = cy + (anchors[i].y - cy) * 0.5;
+        let d = dist(mx, my, midX, midY);
+        let tx = 0, ty = 0;
+        if (d < 150) {
+            let force = pow((150 - d) / 150, 2) * 25;
+            let dirX = midX - mx;
+            let dirY = midY - my;
+            let dLen = sqrt(dirX * dirX + dirY * dirY);
+            if (dLen > 0.001) {
+                tx = (dirX / dLen) * force;
+                ty = (dirY / dLen) * force;
+            }
+        }
+        curveDisp[i].x = lerp(curveDisp[i].x, tx, 0.3);
+        curveDisp[i].y = lerp(curveDisp[i].y, ty, 0.3);
+    }
+
+    push();
+    translate(width / 2, height / 2);
+
+    let sFact = getScaleFactor(vTime);
+    if (isResetting) {
+        sFact = lerp(sFact, 1.0, easeInOutCubic(constrain((millis() - resetStartT) / 3000, 0, 1)));
+    }
+    scale(sFact);
+
+    // Draw Sections
+    noStroke();
+    let cyc = vTime % 105;
+    for (let i = 0; i < 3; i++) {
+        let j = (i + 1) % 3;
+        let c1 = getCurvePoints(i, cx, cy, eStartup);
+        let c2 = getCurvePoints(j, cx, cy, eStartup);
+
+        let sectionRot = 0;
+        if (cyc >= 15) {
+            let sRot = sin((millis() / 1000) * 18 + i * 120) * 2;
+            let ease = 1.0;
+            if (cyc < 17) ease = easeInOutCubic((cyc - 15) / 2);
+            if (cyc > 90) ease = easeInOutCubic(constrain(1 - (cyc - 90) / 15, 0, 1));
+            sectionRot = sRot * ease;
+        }
+
+        let fillOsc = (sin((millis() / 1000) * 18 + i * 120) + 1) / 2;
+        fill(lerpColor(color(PALETTE.grayBg), color(PALETTE.whiteLight), fillOsc));
+
+        push();
+        rotate(sectionRot + mouseRotOffset);
+        beginShape();
+        let endAngle = j * 120;
+        if (endAngle < i * 120) endAngle += 360;
+        for (let a = i * 120; a <= endAngle + 0.1; a += 6) {
+            vertex(cos(a) * 120, sin(a) * 120);
+        }
+        bezierVertex(c2[2].x, c2[2].y, c2[1].x, c2[1].y, c2[0].x, c2[0].y);
+        bezierVertex(c1[1].x, c1[1].y, c1[2].x, c1[2].y, c1[3].x, c1[3].y);
+        endShape(CLOSE);
+        pop();
+    }
+
+    // Draw Dividers
+    noFill();
+    let divW = getDividerStroke(vTime) * eStartup;
+    divW += hoverLerp;
+    let sColor = lerpColor(color(PALETTE.blackMain), color(PALETTE.blackMid), hoverLerp);
+    
+    strokeWeight(divW);
+    stroke(sColor);
+    for (let i = 0; i < 3; i++) {
+        let c = getCurvePoints(i, cx, cy, eStartup);
+        beginShape();
+        vertex(c[0].x, c[0].y);
+        bezierVertex(c[1].x, c[1].y, c[2].x, c[2].y, c[3].x, c[3].y);
+        endShape();
+    }
+
+    // Draw Outer Circle
+    let outW = getOuterStroke(vTime) * eStartup;
+    strokeWeight(outW + hoverLerp);
+    circle(0, 0, 240);
+
+    // Draw Horizontal Bands
+    fill(PALETTE.blackBands);
+    noStroke();
+    rectMode(CORNER);
+    rect(-300, -300, 600, 60);
+    rect(-300, 240, 600, 60);
+    pop();
+
+    drawInteractionIndicator();
+
+    pMouseX = mouseX;
+    pMouseY = mouseY;
+}
+</script>
+</body>
+</html>
