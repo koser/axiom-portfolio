@@ -5,16 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interval Drift</title>
     <style>
-        body, html { 
-            margin: 0; 
-            padding: 0; 
-            overflow: hidden; 
-            background-color: #1a1a1a; 
-            width: 100vw; 
-            height: 100vh; 
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
         }
-        canvas { 
-            display: block; 
+        canvas {
+            display: block;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
@@ -22,250 +20,260 @@
 <body>
     <script>
         let stripes = [];
-        let lastT = 0;
-        let p1_weight = 1, p2_weight = 0, p3_weight = 0;
-
-        let mX = 0, mY = 0;
-        let lastMouseMoveT = 0;
-        let targetDrift = 0, targetWidthAmp = 0;
-        let currentDrift = 0, currentWidthAmp = 0;
-
-        let waves = [];
-        let lastAutoWaveT = 0;
+        let lastMx = 0, lastMy = 0, lastInteractTime = 0;
+        let globalDrift = 0, globalWidthMod = 0;
+        let lastFlipTime = 0;
 
         class Stripe {
-            constructor(index, total) {
+            constructor(index, band, baseX, baseW, type) {
                 this.index = index;
-                this.total = total;
-                
-                // Assign types based on ratios: 15 shadow, 31 primary, 4 accent (Total 50)
-                if (index < 15) this.type = 'shadow';
-                else if (index < 46) this.type = 'primary';
-                else this.type = 'accent';
-
-                this.baseWidth = random(8, 14);
-                this.width = this.baseWidth;
-                this.vx = 0;
-                this.phase = random(TWO_PI);
-                this.noiseOff = random(1000);
-
-                this.resetStart = -9999;
-                this.resetDur = 2000; // 120 frames at 60fps
-                this.resetStartX = 0;
+                this.band = band;
+                this.baseX = baseX;
+                this.x = baseX;
+                this.baseW = baseW;
+                this.w = baseW;
+                this.type = type;
+                this.phaseOffset = random(TWO_PI);
+                this.noiseOffset = random(2000);
+                this.segments = new Array(8).fill(0);
+                this.dragOffsets = new Array(8).fill(0);
+                this.angle = 0;
+                this.dist = 0;
+                this.angularVel = map(index, 0, 50, 0.012, 0.025);
+                this.clickImpulse = 0;
+                this.inP3 = false;
             }
 
-            updateBaseX(w) {
-                this.baseX = map(this.index, 0, this.total - 1, 0, w);
-                if (this.x === undefined) this.x = this.baseX;
-            }
+            update(t, w1, w2, w3) {
+                // --- X Position Logic ---
+                let p1X = this.baseX;
+                if (this.band === 0) p1X += sin(t * 0.008 + this.phaseOffset) * 15 + noise(this.noiseOffset + t * 0.002) * 8;
+                else if (this.band === 1) p1X += sin(t * 0.015 + this.phaseOffset) * 6 + noise(this.noiseOffset + t * 0.003) * 4;
+                else p1X += sin(t * 0.005 + this.phaseOffset) * 25 + noise(this.noiseOffset + t * 0.001) * 12;
 
-            triggerReset(t) {
-                if (t - this.resetStart > this.resetDur) {
-                    this.resetStart = t;
-                    this.resetStartX = this.x;
-                }
-            }
-
-            update(t, dt) {
-                let resetAge = t - this.resetStart;
-                
-                if (resetAge < this.resetDur) {
-                    // Resetting state: easeOutCubic interpolation
-                    let p = resetAge / this.resetDur;
-                    let ease = 1 - Math.pow(1 - p, 3);
-                    this.x = lerp(this.resetStartX, this.baseX, ease);
-                    this.vx = 0;
-                } else {
-                    // Active dynamics state
-                    let force = 0;
-
-                    // Phase 1: Gentle drift
-                    force += p1_weight * (sin(t * 0.0006 + this.phase) * 18 + noise(this.noiseOff + t * 0.00006) * 12);
-
-                    // Phase 2: Chaotic clustering
-                    let p2Force = sin(t * 0.0005 + this.phase) * 48;
-                    if (this.index % 4 === 0) p2Force += 18; // Rightward clustering force
-                    force += p2_weight * p2Force;
-
-                    // Phase 3: Wave separation
-                    let p3Force = 0;
-                    if (this.x < width * 0.33) p3Force = 90;
-                    else if (this.x > width * 0.67) p3Force = -90;
-                    else p3Force = sin(t * 0.0012 + this.phase) * 48;
-                    force += p3_weight * p3Force;
-
-                    // Add interaction drift
-                    force += currentDrift;
-
-                    // Apply forces and physics
-                    this.vx += force * dt;
-                    this.vx *= Math.pow(0.05, dt); // Emulates vx *= 0.95 per frame at 60fps
-                    this.x += this.vx * dt;
-
-                    // Toroidal bounds constraint
-                    if (this.x < -50) this.x += width + 100;
-                    if (this.x > width + 50) this.x -= width + 100;
+                if (w1 > 0) {
+                    this.x = lerp(this.x, p1X, w1 * 0.1);
                 }
 
-                // Continuous width modulation logic
-                let w1 = this.baseWidth + sin(t * 0.002 + this.phase) * 2;
-                let w2 = this.baseWidth + sin(t * 0.0018 + this.phase) * 5;
-                let w3 = this.baseWidth + sin(t * 0.0015 + this.phase) * (5 + currentWidthAmp);
-                this.width = w1 * p1_weight + w2 * p2_weight + w3 * p3_weight;
-            }
+                if (w2 > 0) {
+                    let vx = 0.8 + (this.index * 0.012);
+                    this.x += vx * w2;
+                    // Wrap around during drift
+                    if (this.x > width + 50) this.x = -50;
+                    if (this.x < -50) this.x = width + 50;
+                }
 
-            draw() {
-                if (this.type === 'accent') {
-                    // Flash rarely for 1 frame (approx 1 per 90 frames / 1.5s)
-                    if (random() < 0.011) {
-                        stroke('#e8e8e8');
-                        strokeWeight(this.width);
-                        line(this.x, 0, this.x, height);
+                if (w3 > 0) {
+                    if (!this.inP3) {
+                        this.dist = abs(this.x - this.baseX);
+                        this.angle = (this.x >= this.baseX) ? 0 : PI;
+                        this.inP3 = true;
                     }
+                    
+                    let currentAngVel = this.angularVel + this.clickImpulse;
+                    this.angle += currentAngVel * w3;
+                    this.dist *= lerp(1, 0.988, w3);
+                    
+                    let p3X = this.baseX + cos(this.angle) * this.dist;
+                    this.x = lerp(this.x, p3X, w3 * 0.2);
                 } else {
-                    stroke(this.type === 'primary' ? '#c4c4c4' : '#2d2d2d');
-                    strokeWeight(this.width);
-                    line(this.x, 0, this.x, height);
+                    this.inP3 = false;
+                }
+
+                // Decay click impulse and apply global mouse drift
+                this.clickImpulse = lerp(this.clickImpulse, 0, 0.05);
+                this.x += globalDrift;
+
+                // --- Width Logic ---
+                let p1W = this.baseW + sin(t * 0.02 + this.phaseOffset) * 3;
+                let p2W = this.baseW + sin(t * 0.025 + this.phaseOffset) * 7 + cos(t * 0.012) * 4;
+                let p3W = this.baseW + sin(t * 0.008 + this.phaseOffset) * 1.5;
+                
+                this.w = p1W * w1 + p2W * w2 + p3W * w3 + globalWidthMod;
+                this.w = max(1, this.w);
+
+                // --- Height Segment Offset Logic ---
+                for (let i = 0; i < 8; i++) {
+                    this.dragOffsets[i] *= 0.94; // Decay manual drag
+                    let targetSeg = 0;
+                    if (w2 > 0) {
+                        targetSeg = sin(t * 0.018 + this.phaseOffset + i * 0.6) * 20 * w2;
+                    }
+                    this.segments[i] = lerp(this.segments[i], targetSeg, 0.1) + this.dragOffsets[i];
+                }
+            }
+
+            display(t) {
+                let segH = height / 8;
+                
+                // Set color based on type
+                if (this.type === 'shad') fill(45, 45, 45); // #2d2d2d
+                else if (this.type === 'prim') fill(196, 196, 196); // #c4c4c4
+                else {
+                    // Accent pulses opacity #e8e8e8
+                    let alpha = map(sin(t * 0.031 + this.phaseOffset), -1, 1, 153, 255);
+                    fill(232, 232, 232, alpha);
+                }
+
+                // Render vertical segments
+                for (let i = 0; i < 8; i++) {
+                    let y = i * segH + this.segments[i];
+                    rect(this.x - this.w / 2, y, this.w, segH + 1); // +1 to prevent sub-pixel rendering gaps
                 }
             }
         }
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
-            noiseSeed(888);
-            
+            noiseSeed(42);
+            noStroke();
+
+            // Distribute 50 stripes: 32 primary, 14 shadow, 4 accent
+            let types = Array(32).fill('prim').concat(Array(14).fill('shad')).concat(Array(4).fill('acc'));
+            for (let i = types.length - 1; i > 0; i--) {
+                let j = floor(random(i + 1));
+                [types[i], types[j]] = [types[j], types[i]];
+            }
+
+            let leftW = width * 0.3;
+            let centerW = width * 0.4;
+            let rightW = width * 0.3;
+
             for (let i = 0; i < 50; i++) {
-                let s = new Stripe(i, 50);
-                s.updateBaseX(width);
-                stripes.push(s);
+                let band, baseX, baseW;
+                if (i < 18) {
+                    band = 0;
+                    baseX = map(i, 0, 17, 10, leftW - 10);
+                    baseW = random(12, 16);
+                } else if (i < 38) {
+                    band = 1;
+                    baseX = leftW + map(i - 18, 0, 19, 10, centerW - 10);
+                    baseW = random(6, 10);
+                } else {
+                    band = 2;
+                    baseX = leftW + centerW + map(i - 38, 0, 11, 10, rightW - 10);
+                    baseW = random(10, 14);
+                }
+                stripes.push(new Stripe(i, band, baseX, baseW, types[i]));
             }
         }
 
         function draw() {
-            background('#1a1a1a');
+            background(26, 26, 26); // #1a1a1a
+            let ms = millis();
+            let t = ms / 16.666; // Normalize to roughly 60fps frame count equivalent
+
+            // --- Global Interaction & Idle Handling ---
+            if (abs(mouseX - lastMx) > 1 || abs(mouseY - lastMy) > 1) {
+                lastInteractTime = ms;
+                lastMx = mouseX; 
+                lastMy = mouseY;
+            }
+
+            if (ms - lastInteractTime > 4000) {
+                globalDrift *= 0.97;
+                globalWidthMod *= 0.97;
+                if (abs(globalDrift) < 0.1) globalDrift = 0;
+                if (abs(globalWidthMod) < 0.1) globalWidthMod = 0;
+            } else {
+                let targetDrift = map(mouseX, 0, width, -0.8, 0.8);
+                let targetWMod = map(mouseY, 0, height, -5, 5);
+                globalDrift = lerp(globalDrift, targetDrift, 0.1);
+                globalWidthMod = lerp(globalWidthMod, targetWMod, 0.1);
+            }
+
+            // --- Phase State Calculation (120s cycle) ---
+            let cycle = ms % 120000;
+            let w1 = 0, w2 = 0, w3 = 0;
             
-            let t = millis();
-            let dt = min((t - lastT) / 1000.0, 0.05); // Protect against lag spikes
-            lastT = t;
+            if (cycle < 20000) w1 = 1; // P1
+            else if (cycle < 24000) { w2 = (cycle - 20000) / 4000; w1 = 1 - w2; } // P1 -> P2
+            else if (cycle < 55000) w2 = 1; // P2
+            else if (cycle < 59000) { w3 = (cycle - 55000) / 4000; w2 = 1 - w3; } // P2 -> P3
+            else if (cycle < 116000) w3 = 1; // P3
+            else { w1 = (cycle - 116000) / 4000; w3 = 1 - w1; } // P3 -> P1
 
-            updatePhaseState(t);
-            updateInteraction(t);
-            processWaves(t);
+            // Smooth phase weights (easeInOut)
+            w1 = w1 * w1 * (3 - 2 * w1);
+            w2 = w2 * w2 * (3 - 2 * w2);
+            w3 = w3 * w3 * (3 - 2 * w3);
 
-            // Update all physics
-            for (let i = 0; i < stripes.length; i++) {
-                stripes[i].update(t, dt);
+            // --- Phase 3 Shockwaves ---
+            if (w3 > 0.5 && ms - lastFlipTime > 6000) {
+                lastFlipTime = ms;
+                let count = floor(random(6, 11));
+                for (let i = 0; i < count; i++) random(stripes).angle += PI;
             }
 
-            // Draw in strict z-order
-            for (let i = 0; i < stripes.length; i++) {
-                if (stripes[i].type === 'shadow') stripes[i].draw();
-            }
-            for (let i = 0; i < stripes.length; i++) {
-                if (stripes[i].type === 'primary') stripes[i].draw();
-            }
-            for (let i = 0; i < stripes.length; i++) {
-                if (stripes[i].type === 'accent') stripes[i].draw();
-            }
+            // Update all stripes
+            for (let s of stripes) s.update(t, w1, w2, w3);
 
-            drawInteractionIndicator(t);
-        }
-
-        function updatePhaseState(t) {
-            let cycleT = t % 90000;
-            
-            if (cycleT < 15000) { // Phase 1
-                p1_weight = 1; p2_weight = 0; p3_weight = 0;
-            } else if (cycleT < 20000) { // Transition 1 -> 2
-                p1_weight = map(cycleT, 15000, 20000, 1, 0);
-                p2_weight = map(cycleT, 15000, 20000, 0, 1);
-                p3_weight = 0;
-            } else if (cycleT < 40000) { // Phase 2
-                p1_weight = 0; p2_weight = 1; p3_weight = 0;
-            } else if (cycleT < 45000) { // Transition 2 -> 3
-                p1_weight = 0;
-                p2_weight = map(cycleT, 40000, 45000, 1, 0);
-                p3_weight = map(cycleT, 40000, 45000, 0, 1);
-            } else if (cycleT < 85000) { // Phase 3
-                p1_weight = 0; p2_weight = 0; p3_weight = 1;
-            } else { // Transition 3 -> 1
-                p3_weight = map(cycleT, 85000, 90000, 1, 0);
-                p1_weight = map(cycleT, 85000, 90000, 0, 1);
-                p2_weight = 0;
-            }
-        }
-
-        function updateInteraction(t) {
-            let idleTime = t - lastMouseMoveT;
-            
-            if (idleTime < 5000) { // Active
-                targetDrift = map(mX, 0, width, -30, 30); // +/- 30px per sec
-                targetWidthAmp = map(mY, 0, height, 0, 10);
-            } else { // Idle decay over time
-                targetDrift = 0;
-                targetWidthAmp = 0;
-            }
-            
-            currentDrift = lerp(currentDrift, targetDrift, 0.05);
-            currentWidthAmp = lerp(currentWidthAmp, targetWidthAmp, 0.05);
-        }
-
-        function processWaves(t) {
-            // Phase 3 specific auto-resets
-            if (p3_weight > 0.5 && t - lastAutoWaveT > 4000) {
-                let numToReset = floor(random(5, 9));
-                for(let i=0; i<numToReset; i++) {
-                    let idx = floor(random(stripes.length));
-                    stripes[idx].triggerReset(t);
-                }
-                lastAutoWaveT = t;
-            }
-
-            // Click-generated expansion waves
-            for (let i = waves.length - 1; i >= 0; i--) {
-                let w = waves[i];
-                let age = t - w.startTime;
-                
-                if (age > 1500) { // 90 frames at 60fps
-                    waves.splice(i, 1);
-                } else {
-                    let radius = 150 + (age / 1000) * 180; // Starts 150px, expands 180px/s
-                    for (let s of stripes) {
-                        if (abs(s.x - w.x) < radius) {
-                            s.triggerReset(t);
-                        }
-                    }
+            // Draw order: shadow (back), primary (mid), accent (front)
+            for (let type of ['shad', 'prim', 'acc']) {
+                for (let s of stripes) {
+                    if (s.type === type) s.display(t);
                 }
             }
-        }
 
-        function drawInteractionIndicator(t) {
-            let alpha = map(t, 0, 4000, 180, 0, true);
-            if (alpha <= 0) return;
-            
-            push();
-            noStroke();
-            fill(232, 232, 232, alpha);
-            ellipse(width / 2, 20, 12, 12);
-            fill(26, 26, 26, alpha);
-            ellipse(width / 2, 20, 6, 6);
-            pop();
-        }
-
-        function mouseMoved() {
-            mX = mouseX;
-            mY = mouseY;
-            lastMouseMoveT = millis();
+            drawInteractionIndicator(ms);
         }
 
         function mousePressed() {
-            waves.push({ x: mouseX, startTime: millis() });
+            let cx = width / 2;
+            let cy = height / 2;
+            let clickAngle = atan2(mouseY - cy, mouseX - cx);
+
+            for (let s of stripes) {
+                let d = dist(mouseX, mouseY, s.x, cy);
+                let diff = abs(s.angle - clickAngle);
+                if (diff > PI) diff = TWO_PI - diff; // Handle wrap around
+                
+                if (diff < PI / 4 && d < 400) {
+                    s.clickImpulse += 0.08;
+                }
+            }
+        }
+
+        function mouseDragged() {
+            if (abs(mouseX - pmouseX) > 2) {
+                let closest = stripes[0];
+                let minDist = abs(stripes[0].x - mouseX);
+                
+                for (let s of stripes) {
+                    let d = abs(s.x - mouseX);
+                    if (d < minDist) { 
+                        minDist = d; 
+                        closest = s; 
+                    }
+                }
+                
+                let dy = mouseY - pmouseY;
+                for (let i = 0; i < 8; i++) {
+                    closest.dragOffsets[i] += map(dy, -50, 50, -15, 15, true) * map(i, 0, 7, 1.0, 0.3);
+                }
+            }
         }
 
         function windowResized() {
+            let oldW = width;
             resizeCanvas(windowWidth, windowHeight);
+            let ratio = width / oldW;
             for (let s of stripes) {
-                s.updateBaseX(width);
+                s.baseX *= ratio;
+                s.x *= ratio;
+            }
+        }
+
+        function drawInteractionIndicator(ms) {
+            if (ms < 4000) {
+                let alpha = map(ms, 0, 4000, 180, 0);
+                push();
+                noStroke();
+                fill(232, 232, 232, alpha); // #e8e8e8
+                ellipse(width / 2, 20, 12, 12);
+                fill(26, 26, 26, alpha); // #1a1a1a
+                ellipse(width / 2, 20, 4, 4);
+                pop();
             }
         }
     </script>
