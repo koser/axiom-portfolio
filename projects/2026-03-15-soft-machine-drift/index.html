@@ -5,11 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Soft Machine Drift</title>
     <style>
-        body, html {
+        body {
             margin: 0;
             padding: 0;
-            width: 100%;
-            height: 100%;
             overflow: hidden;
             background-color: #f4f1e8;
         }
@@ -21,406 +19,363 @@
 </head>
 <body>
     <script>
-        // Palette
         const PALETTE = ['#4a7c8e', '#d94e72', '#8b5a7d', '#c9a84e', '#e87451'];
-        const BG_COLOR = '#f4f1e8';
-        const SHADOW_COLOR = '#2d5f3f';
+        const SHADOW = '#2d5f3f';
+        const BG = '#f4f1e8';
 
-        // State Arrays
-        let capsules = [];
-        let granules = [];
-        let ripples = [];
-        let bgTexture;
-        
-        // Interaction State
-        let lastMouseMoved = 0;
-        let rotMultiplier = 1;
-        let noiseMultiplier = 1;
+        let caps = [];
+        let grans = [];
+        let tex;
+        let simTime = 0;
+        let lastRealTime = 0;
+        let timeDilation = 1.0;
+        let vortexOffX = 0;
+        let lastInteraction = 0;
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
-            colorMode(RGB, 255);
-            frameRate(60);
-            noiseSeed(42);
+            generateTexture();
+            initSystem();
+            lastRealTime = millis();
+        }
 
-            generateBackgroundTexture();
-
-            // Initialize entities
+        function initSystem() {
+            caps = [];
+            grans = [];
             for (let i = 0; i < 28; i++) {
-                capsules.push(new Capsule(i % 4));
+                caps.push(new Capsule(i));
             }
-            for (let i = 0; i < 150; i++) {
-                granules.push(new Granule());
+            for (let i = 0; i < 140; i++) {
+                grans.push(new Granule());
             }
         }
 
-        function generateBackgroundTexture() {
-            bgTexture = createGraphics(windowWidth, windowHeight);
-            bgTexture.noStroke();
-            bgTexture.fill(45, 95, 63, 8); // Shadow color with ~3% opacity
+        function generateTexture() {
+            tex = createGraphics(windowWidth, windowHeight);
+            tex.noStroke();
+            tex.fill(0, 0, 0, 8);
             for (let i = 0; i < 4000; i++) {
-                bgTexture.ellipse(random(width), random(height), random(2, 8));
+                tex.ellipse(random(tex.width), random(tex.height), random(2, 8));
             }
         }
 
         function draw() {
-            background(BG_COLOR);
-            image(bgTexture, 0, 0);
+            let now = millis();
+            let dt = now - lastRealTime;
+            lastRealTime = now;
 
-            let t = millis();
-            let cycleTime = t % 120000;
-            let phase = 1; // 0-20s
-            if (cycleTime > 20000 && cycleTime <= 65000) phase = 2; // 20s-65s
-            if (cycleTime > 65000) phase = 3; // 65s-120s
+            handleInteraction();
 
-            updateInteraction(t);
+            simTime += dt * timeDilation;
+            let simFrames = (dt * timeDilation) / 16.67;
 
-            // Update and Draw Ripples
-            for (let i = ripples.length - 1; i >= 0; i--) {
-                ripples[i].update(t);
-                ripples[i].draw();
-                if (ripples[i].isDead) ripples.splice(i, 1);
+            // Phase calculation (120s cycle)
+            let cycle = simTime % 120000;
+            let phase = cycle < 28000 ? 1 : (cycle < 72000 ? 2 : 3);
+            let pProg = phase === 1 ? cycle / 28000 : (phase === 2 ? (cycle - 28000) / 44000 : (cycle - 72000) / 48000);
+
+            // Restart trigger
+            if (phase === 1 && pProg < 0.005 && caps[0] && caps[0].phase === 3) {
+                initSystem();
             }
 
-            // Update and Draw Capsules
-            for (let c of capsules) {
-                c.update(phase, t, ripples);
-            }
+            background(BG);
+            image(tex, 0, 0);
+
+            // Z-sorting by phase roughly
+            for (let c of caps) c.update(phase, pProg, simFrames);
+            for (let c of caps) c.drawShadow();
+            for (let c of caps) c.draw();
             
-            // Handle phase 2 blending organically (O(n^2) but n is small)
-            if (phase === 2) {
-                for (let i = 0; i < capsules.length; i++) {
-                    for (let j = i + 1; j < capsules.length; j++) {
-                        let d = p5.Vector.dist(capsules[i].pos, capsules[j].pos);
-                        if (d < 60) {
-                            capsules[i].col = lerpColor(capsules[i].col, capsules[j].baseCol, 0.02);
-                            capsules[j].col = lerpColor(capsules[j].col, capsules[i].baseCol, 0.02);
-                        }
-                    }
-                }
-            } else {
-                // Revert to base color slowly
-                for (let c of capsules) {
-                    c.col = lerpColor(c.col, c.baseCol, 0.01);
-                }
-            }
-
-            // Draw Capsules (Trails first, then bodies)
-            for (let c of capsules) c.drawTrails();
-            for (let c of capsules) c.drawBody(t);
-
-            // Update and Draw Granules
-            for (let g of granules) {
-                g.update(phase, t, capsules);
+            for (let g of grans) {
+                g.update(phase, simFrames);
                 g.draw();
             }
 
-            drawInteractionIndicator(t);
+            drawInteractionIndicator();
         }
 
-        function updateInteraction(t) {
-            let mouseActive = (t - lastMouseMoved) < 2000; // 120 frames approx
-            if (mouseActive) {
-                rotMultiplier = map(mouseX, 0, width, 0.5, 2.2, true);
-                noiseMultiplier = map(mouseY, 0, height, 0.5, 1.5, true);
+        function handleInteraction() {
+            let now = millis();
+            let isPassive = (now - lastInteraction) > 1500;
+
+            if (!isPassive) {
+                timeDilation = lerp(timeDilation, map(mouseY, 0, height, 0.6, 1.8), 0.1);
+                vortexOffX = lerp(vortexOffX, map(mouseX, 0, width, -180, 180), 0.1);
             } else {
-                rotMultiplier = lerp(rotMultiplier, 1.0, 0.05);
-                noiseMultiplier = lerp(noiseMultiplier, 1.0, 0.05);
+                timeDilation = lerp(timeDilation, 1.0, 0.03);
+                vortexOffX = lerp(vortexOffX, 0, 0.03);
+            }
+
+            if (mouseIsPressed && !isPassive) {
+                for (let c of caps) {
+                    let d = dist(mouseX, mouseY, c.p.x, c.p.y);
+                    if (d < 280) {
+                        let force = p5.Vector.sub(c.p, createVector(mouseX, mouseY))
+                                    .normalize()
+                                    .mult(2.1 * pow(1 - d / 280, 2) * timeDilation);
+                        c.v.add(force);
+                    }
+                }
             }
         }
 
-        function mouseMoved() {
-            lastMouseMoved = millis();
-        }
-
+        function mouseMoved() { lastInteraction = millis(); }
+        function mouseDragged() { lastInteraction = millis(); }
         function mousePressed() {
-            lastMouseMoved = millis();
-            ripples.push(new Ripple(mouseX, mouseY, millis()));
+            lastInteraction = millis();
+            for (let c of caps) {
+                let d = dist(mouseX, mouseY, c.p.x, c.p.y);
+                if (d < 400) {
+                    let mag = 3.2 * (1 - d / 400);
+                    let dir = createVector(c.p.y - mouseY, mouseX - c.p.x).normalize().mult(mag);
+                    c.v.add(dir);
+                }
+            }
+            // Spawn temporary granules
+            for(let i=0; i<15; i++) {
+                let g = new Granule();
+                g.p = createVector(mouseX + random(-20,20), mouseY + random(-20,20));
+                grans.push(g);
+            }
+            if(grans.length > 200) grans.splice(0, grans.length - 200);
         }
 
         function windowResized() {
             resizeCanvas(windowWidth, windowHeight);
-            generateBackgroundTexture();
+            generateTexture();
         }
 
-        function drawInteractionIndicator(t) {
-            if (t < 4000) {
-                let alpha = map(t, 0, 4000, 180, 0);
+        function drawInteractionIndicator() {
+            let mt = millis();
+            if (mt < 4000) {
+                let a = map(mt, 0, 4000, 180, 0);
                 push();
-                fill(74, 124, 142, alpha); // dusty teal
+                fill(74, 124, 142, a); // dusty teal
                 noStroke();
-                ellipse(width / 2, 20, 12, 12);
-                fill(244, 241, 232, alpha);
-                ellipse(width / 2, 20, 4, 4);
+                rectMode(CENTER);
+                rect(width / 2, 20, 14, 20, 7);
+                fill(244, 241, 232, a);
+                rect(width / 2, 15, 4, 6, 2); // wheel
                 pop();
             }
         }
 
-        // --- CLASSES ---
-
         class Capsule {
-            constructor(quadrant) {
-                // Start slightly offscreen
-                let edge = floor(random(4));
-                this.pos = createVector(
-                    edge === 0 || edge === 2 ? random(width) : (edge === 1 ? width + 100 : -100),
-                    edge === 1 || edge === 3 ? random(height) : (edge === 2 ? height + 100 : -100)
-                );
-                
-                this.quadrant = quadrant;
+            constructor(idx) {
+                this.id = idx;
+                this.spawnAngle = (idx % 8) * TWO_PI / 8;
+                let cx = width / 2 + cos(this.spawnAngle) * 200;
+                let cy = height / 2 + sin(this.spawnAngle) * 200;
+                this.orbitAngle = random(TWO_PI);
+                this.orbitDir = random() > 0.5 ? 1 : -1;
+                this.p = createVector(cx + cos(this.orbitAngle) * 220, cy + sin(this.orbitAngle) * 220);
+                this.v = createVector(0, 0);
+                this.col = color(PALETTE[idx % PALETTE.length]);
+                this.col.setAlpha(220);
                 this.baseW = random(80, 180);
                 this.baseH = random(40, 90);
                 this.rot = random(TWO_PI);
-                this.baseRotSpeed = random(0.003, 0.008) * (random() > 0.5 ? 1 : -1);
-                
-                let hexCol = random(PALETTE);
-                this.baseCol = color(hexCol);
-                this.baseCol.setAlpha(170); // ~65% opacity
-                this.col = color(hexCol);
-                this.col.setAlpha(170);
-                
-                this.nid = random(1000); // Noise offset
+                this.seed = random(1000);
                 this.hist = [];
-                this.target = this.getQuadrantTarget();
-                this.vel = createVector(0,0);
+                this.phase = 1;
+                this.hasSplit = false;
+                this.sc = 0;
             }
 
-            getQuadrantTarget() {
-                let cx = width / 2;
-                let cy = height / 2;
-                switch(this.quadrant) {
-                    case 0: return createVector(cx/2, cy/2);
-                    case 1: return createVector(cx + cx/2, cy/2);
-                    case 2: return createVector(cx/2, cy + cy/2);
-                    case 3: return createVector(cx + cx/2, cy + cy/2);
+            update(ph, prog, sFrames) {
+                // Phase transitions
+                if (ph !== this.phase) {
+                    if (ph === 3) {
+                        let dir = p5.Vector.sub(this.p, createVector(width / 2, height / 2)).normalize();
+                        this.v = dir.mult(5.8);
+                    }
+                    this.phase = ph;
                 }
-                return createVector(cx, cy);
-            }
 
-            update(phase, t, ripples) {
-                // Determine target based on phase
-                if (phase === 1) {
-                    this.target = this.getQuadrantTarget();
-                    // Add some drift
-                    this.target.x += (noise(this.nid, t*0.0001) - 0.5) * 200;
-                    this.target.y += (noise(this.nid + 100, t*0.0001) - 0.5) * 200;
-                } else if (phase === 2) {
-                    // Compress to center
-                    let angle = noise(this.nid, t*0.0002) * TWO_PI;
-                    let rad = noise(this.nid+200, t*0.0001) * 280;
-                    this.target.x = width/2 + cos(angle)*rad;
-                    this.target.y = height/2 + sin(angle)*rad;
+                // Entrance scaling
+                if (ph === 1 && prog < 0.05) {
+                    let ease = 1 - pow(1 - (prog / 0.05), 3);
+                    this.sc = map(ease, 0, 1, 0.2, 1.0);
                 } else {
-                    // Scatter to edges
-                    let angle = map(this.nid, 0, 1000, 0, TWO_PI);
-                    this.target.x = width/2 + cos(angle) * (width/2 + 100);
-                    this.target.y = height/2 + sin(angle) * (height/2 + 100);
+                    // Organic breathing pulse
+                    this.sc = 1.0 + (noise(this.id * 10, simTime * 0.0005) - 0.5) * 0.24;
                 }
 
-                // Apply Ripple Forces
-                let externalForce = createVector(0,0);
-                for (let r of ripples) {
-                    let d = p5.Vector.dist(this.pos, r.pos);
-                    if (d < 350) {
-                        let forceMag = 1.8 * pow(1 - (d/350), 2);
-                        let dir = p5.Vector.sub(this.pos, r.pos).normalize();
-                        externalForce.add(dir.mult(forceMag));
-                    }
-                }
+                if (ph === 1) {
+                    let cx = width / 2 + cos(this.spawnAngle) * 200;
+                    let cy = height / 2 + sin(this.spawnAngle) * 200;
+                    this.orbitAngle += 0.008 * this.orbitDir * sFrames;
+                    let tx = cx + cos(this.orbitAngle) * 220;
+                    let ty = cy + sin(this.orbitAngle) * 220;
+                    this.p.lerp(createVector(tx, ty), 0.08 * sFrames);
+                    this.rot += random(0.006, 0.011) * sFrames;
 
-                // Movement math
-                let desired = p5.Vector.sub(this.target, this.pos);
-                let speedMod = phase === 2 ? 0.02 : (phase === 3 ? 0.01 : 0.005);
-                desired.mult(speedMod);
-                
-                this.vel.lerp(desired, 0.05);
-                this.vel.add(externalForce);
-                this.vel.limit(6);
-                this.pos.add(this.vel);
-
-                // Rotation
-                let currentRotSpeed = this.baseRotSpeed * rotMultiplier;
-                if (phase === 2) currentRotSpeed *= 2.0;
-                if (phase === 3) currentRotSpeed *= 0.6;
-                this.rot += currentRotSpeed;
-
-                // History for trails (record every few frames to save memory)
-                if (frameCount % 3 === 0) {
-                    this.hist.push({x: this.pos.x, y: this.pos.y, r: this.rot});
-                    let maxHist = phase === 3 ? 22 : 12;
-                    if (this.hist.length > maxHist) this.hist.shift();
-                }
-            }
-
-            drawTrails() {
-                noStroke();
-                let alpha = 20; // ~8% opacity
-                fill(red(this.col), green(this.col), blue(this.col), alpha);
-                for (let i = 0; i < this.hist.length; i++) {
-                    let h = this.hist[i];
-                    this.renderGeometry(h.x, h.y, h.r, this.nid, 0, 1.0); // No noise on trails to save compute
-                }
-            }
-
-            drawBody(t) {
-                fill(this.col);
-                noStroke();
-                let breath = 1.0 + sin(t * 0.002 + this.nid) * 0.08;
-                this.renderGeometry(this.pos.x, this.pos.y, this.rot, this.nid + t*0.001, noiseMultiplier, breath);
-            }
-
-            renderGeometry(tx, ty, tr, nOff, nMod, scaleMod) {
-                push();
-                translate(tx, ty);
-                rotate(tr);
-                scale(scaleMod);
-
-                beginShape();
-                let pts = 24;
-                let r = this.baseH / 2;
-                let straightL = max(0, this.baseW - this.baseH);
-                
-                for (let i = 0; i < pts + 3; i++) {
-                    let ang = (i % pts) / pts * TWO_PI;
-                    let px, py;
+                } else if (ph === 2) {
+                    let cx = width / 2 + vortexOffX;
+                    let cy = height / 2;
+                    let d = dist(this.p.x, this.p.y, cx, cy);
+                    let a = atan2(this.p.y - cy, this.p.x - cx);
                     
-                    // Build ideal pill shape
-                    if (ang < PI/2 || ang > 3*PI/2) {
-                        px = straightL/2 + r * cos(ang);
-                        py = r * sin(ang);
-                    } else {
-                        px = -straightL/2 + r * cos(ang);
-                        py = r * sin(ang);
+                    let aVel = map(prog, 0, 1, 0.01, 0.028);
+                    a += aVel * sFrames;
+                    d = lerp(d, max(20, d - 0.8 * sFrames), 0.1);
+                    
+                    this.p.lerp(createVector(cx + cos(a) * d, cy + sin(a) * d), 0.15 * sFrames);
+                    
+                    // Rotation oscillation
+                    this.rot += (0.021 * sin(simTime * 0.0005 + this.id)) * sFrames;
+                    
+                    // Weaving logic
+                    if (prog > 0.2) {
+                        this.p.x += sin(simTime * 0.002 + this.id) * 2 * sFrames;
+                        this.p.y += cos(simTime * 0.0025 + this.id) * 2 * sFrames;
+                        // Squash/stretch approximation via scale mod
+                        this.sc *= 1.0 + sin(simTime * 0.004 + this.id) * 0.12;
                     }
 
-                    // Apply noise displacement outward from local center
-                    if (nMod > 0) {
-                        let n = (noise(px*0.03 + nOff, py*0.03 + nOff) - 0.5) * 24 * nMod;
-                        let mag = sqrt(px*px + py*py) || 1;
-                        px += (px/mag) * n;
-                        py += (py/mag) * n;
-                    }
+                } else if (ph === 3) {
+                    this.p.add(p5.Vector.mult(this.v, sFrames));
+                    this.v.mult(pow(0.985, sFrames));
+                    this.rot += (0.003 + sin(simTime * 0.005) * 0.02) * sFrames;
 
-                    curveVertex(px, py);
+                    // Cascading Splits
+                    let dC = dist(this.p.x, this.p.y, width / 2, height / 2);
+                    if (dC < 160 && !this.hasSplit && caps.length < 50 && random() < 0.06) {
+                        this.hasSplit = true;
+                        this.baseW *= 0.7; this.baseH *= 0.7;
+                        
+                        let child = new Capsule(this.id + 100);
+                        let perp = createVector(-this.v.y, this.v.x).normalize().mult(30);
+                        child.p = this.p.copy().add(perp);
+                        child.v = this.v.copy().rotate(0.4).mult(1.1);
+                        child.baseW = this.baseW; child.baseH = this.baseH;
+                        child.phase = 3; child.hasSplit = true;
+                        child.sc = 0.7;
+                        caps.push(child);
+                        
+                        this.p.sub(perp); // push parent opposite way
+                        this.v.rotate(-0.4);
+                    }
                 }
-                endShape();
+
+                // Global bounds & drag
+                this.p.add(p5.Vector.mult(this.v, sFrames));
+                this.v.mult(pow(0.95, sFrames)); // intrinsic friction
+
+                if (frameCount % 3 === 0) {
+                    this.hist.push(this.p.copy());
+                    if (this.hist.length > (ph === 3 ? 18 : 10)) this.hist.shift();
+                }
+            }
+
+            drawShape(c, xOff = 0, yOff = 0, isShadow = false) {
+                push();
+                translate(this.p.x + xOff, this.p.y + yOff);
+                rotate(this.rot);
+                scale(this.sc);
+                fill(c);
+                noStroke();
+                beginShape();
+                let pts = 36;
+                let hw = this.baseW / 2, hh = this.baseH / 2;
+                let sw = max(0, this.baseW - this.baseH);
+                let tOff = simTime * 0.0015;
+                
+                for (let i = 0; i < pts; i++) {
+                    let a = map(i, 0, pts, 0, TWO_PI);
+                    let bx, by;
+                    // Parametric capsule boundary
+                    if (a < HALF_PI || a > 3 * HALF_PI) {
+                        bx = sw / 2 + cos(a) * hh; by = sin(a) * hh;
+                    } else {
+                        bx = -sw / 2 + cos(a) * hh; by = sin(a) * hh;
+                    }
+                    
+                    let n = noise(bx * 0.08 + this.seed, by * 0.08, tOff);
+                    let disp = map(n, 0, 1, -12, 12);
+                    
+                    // Approximate normal
+                    let nx = bx > sw/2 ? cos(a) : (bx < -sw/2 ? cos(a) : 0);
+                    let ny = (bx > sw/2 || bx < -sw/2) ? sin(a) : (by > 0 ? 1 : -1);
+                    
+                    // Deflate shape slightly for shadow to create core mass look
+                    if(isShadow) disp -= 4; 
+                    
+                    vertex(bx + nx * disp, by + ny * disp);
+                }
+                endShape(CLOSE);
                 pop();
+            }
+
+            drawShadow() {
+                this.drawShape(color(45, 95, 63, 60), 12, 18, true); // deep forest green shadow
+            }
+
+            draw() {
+                // Trails
+                if (this.hist.length > 2) {
+                    noFill();
+                    let velMag = this.v.mag();
+                    let tAlpha = map(velMag, 0, 5, 10, 35);
+                    stroke(red(this.col), green(this.col), blue(this.col), tAlpha);
+                    strokeWeight(this.baseH * 0.7 * this.sc);
+                    beginShape();
+                    for (let pt of this.hist) vertex(pt.x, pt.y);
+                    endShape();
+                }
+                this.drawShape(this.col);
             }
         }
 
         class Granule {
             constructor() {
-                this.pos = createVector(random(width), random(height));
-                this.vel = p5.Vector.random2D().mult(0.4);
-                this.size = random(6, 12);
-                this.nid = random(1000);
-                
-                // Pre-calculate irregular polygon vertices
-                this.verts = [];
-                for(let i=0; i<6; i++) {
-                    let a = (i/6) * TWO_PI;
-                    let r = this.size * random(0.6, 1.2);
-                    this.verts.push(createVector(cos(a)*r, sin(a)*r));
-                }
+                this.p = createVector(random(width), random(height));
+                this.tgt = null;
+                this.id = random(100);
             }
 
-            update(phase, t, capsules) {
-                if (phase === 1) {
-                    // Brownian drift
-                    if (frameCount % 12 === 0) {
-                        this.vel.add(p5.Vector.random2D().mult(0.4)).limit(1.0);
-                    }
-                } else if (phase === 2) {
-                    // Halo attraction to nearest capsule
-                    let nearest = null;
-                    let minDist = Infinity;
-                    for (let c of capsules) {
-                        let d = p5.Vector.dist(this.pos, c.pos);
-                        if (d < minDist) { minDist = d; nearest = c; }
-                    }
-                    if (nearest && minDist < 150) {
-                        let dir = p5.Vector.sub(nearest.pos, this.pos).normalize();
-                        // Target a radius slightly larger than capsule
-                        if (minDist > nearest.baseW/2 + 20) {
-                            this.vel.lerp(dir.mult(0.8), 0.1);
-                        } else {
-                            // Orbit/Tangent force
-                            this.vel.lerp(createVector(-dir.y, dir.x).mult(1.5), 0.1);
+            update(ph, sFrames) {
+                if (ph === 3 && simTime % 120000 > 75000) {
+                    // Detach and drift
+                    let dir = p5.Vector.sub(this.p, createVector(width / 2, height / 2)).normalize();
+                    this.p.add(p5.Vector.mult(dir, 0.7 * sFrames));
+                } else {
+                    if (frameCount % 6 === 0) {
+                        let md = 9999;
+                        for (let c of caps) {
+                            let d = dist(this.p.x, this.p.y, c.p.x, c.p.y);
+                            if (d < md) { md = d; this.tgt = c; }
                         }
                     }
-                } else {
-                    // Phase 3 fade/drift
-                    this.vel.mult(0.98); // Slow down
+                    if (this.tgt) {
+                        let dir = p5.Vector.sub(this.tgt.p, this.p);
+                        let d = dir.mag();
+                        // Snap to corona
+                        if (d > (this.tgt.baseW/2 + 20)) {
+                            this.p.add(dir.normalize().mult(3 * sFrames));
+                        } else {
+                            // Orbit slightly
+                            let a = atan2(this.p.y - this.tgt.p.y, this.p.x - this.tgt.p.x);
+                            a += (ph === 2 ? 0.035 : 0.01) * sFrames;
+                            let r = this.tgt.baseH/2 + 15 + sin(simTime*0.005 + this.id)*10;
+                            this.p.x = this.tgt.p.x + cos(a)*r;
+                            this.p.y = this.tgt.p.y + sin(a)*r;
+                        }
+                    }
                 }
-
-                this.pos.add(this.vel);
-                
-                // Wrap edges
-                if (this.pos.x < 0) this.pos.x = width;
-                if (this.pos.x > width) this.pos.x = 0;
-                if (this.pos.y < 0) this.pos.y = height;
-                if (this.pos.y > height) this.pos.y = 0;
             }
 
             draw() {
-                push();
-                translate(this.pos.x, this.pos.y);
-                rotate(noise(this.nid, millis()*0.001) * TWO_PI);
-                fill(74, 124, 142, 100); // Dusty teal, translucent
+                fill(139, 90, 125, 180); // muted plum
                 noStroke();
                 beginShape();
-                for (let i = 0; i < this.verts.length; i++) {
-                    let v = this.verts[i];
-                    let nv = this.verts[(i+1)%this.verts.length];
-                    // Quadratic vertex for soft corners
-                    let cx = (v.x + nv.x)/2;
-                    let cy = (v.y + nv.y)/2;
-                    if (i===0) vertex(cx, cy);
-                    quadraticVertex(nv.x, nv.y, (nv.x + this.verts[(i+2)%this.verts.length].x)/2, (nv.y + this.verts[(i+2)%this.verts.length].y)/2);
+                for(let i=0; i<6; i++) {
+                    let a = i * TWO_PI/6 + this.id;
+                    let r = 3 + noise(this.id, i, simTime*0.002)*3;
+                    vertex(this.p.x + cos(a)*r, this.p.y + sin(a)*r);
                 }
                 endShape(CLOSE);
-                pop();
-            }
-        }
-
-        class Ripple {
-            constructor(x, y, t) {
-                this.pos = createVector(x, y);
-                this.startTime = t;
-                this.duration = 4000; // 240 frames approx
-                this.isDead = false;
-                this.particles = [];
-                for(let i=0; i<30; i++) {
-                    this.particles.push({
-                        p: createVector(x, y),
-                        v: p5.Vector.random2D().mult(random(1.5, 3.0)),
-                        s: random(3, 8)
-                    });
-                }
-            }
-
-            update(t) {
-                if (t - this.startTime > this.duration) {
-                    this.isDead = true;
-                }
-                for(let p of this.particles) {
-                    p.p.add(p.v);
-                }
-            }
-
-            draw() {
-                let age = millis() - this.startTime;
-                let alpha = map(age, 0, this.duration, 200, 0, true);
-                noStroke();
-                fill(232, 116, 81, alpha); // Coral orange
-                for(let p of this.particles) {
-                    beginShape();
-                    for(let i=0; i<4; i++) {
-                        let a = (i/4)*TWO_PI;
-                        curveVertex(p.p.x + cos(a)*p.s, p.p.y + sin(a)*p.s);
-                    }
-                    endShape(CLOSE);
-                }
             }
         }
     </script>
