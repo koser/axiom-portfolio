@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sediment Collapse Liturgy</title>
+<style>
+    body { margin: 0; padding: 0; overflow: hidden; background-color: #0d0d0f; }
+    canvas { display: block; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<script>
+let layers = [];
+let lastMouseTime = 0;
+let clickState = { active: false, start: 0, targets: [] };
+let lastFcTime = 0, isSmooth = true;
+
+const easeInQuad = t => t * t;
+const easeInOutCubic = t => t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
+const easeOutElastic = t => {
+    if (t === 0 || t === 1) return t;
+    return pow(2, -10 * t) * sin((t * 10 - 0.75) * (2 * Math.PI) / 3) + 1;
+};
+
+class Stratum {
+    constructor(idx) {
+        this.idx = idx;
+        this.bw = map(idx, 0, 6, 380, 180);
+        this.bh = map(idx, 0, 6, 95, 35);
+        this.poff = idx * 0.7;
+        this.seed = idx * 2.719;
+        this.noff = 0;
+
+        this.pts = [];
+        for (let i = 0; i < 28; i++) {
+            let a = map(i, 0, 28, 0, TWO_PI);
+            this.pts.push({ nx: cos(a), ny: sin(a), nseed: this.seed + i * 0.347 });
+        }
+
+        this.grains = [];
+        for (let i = 0; i < 16; i++) {
+            let pts = [];
+            let gseed = this.seed + i * 1.234;
+            for (let j = 0; j < 28; j++) {
+                let a = map(j, 0, 28, 0, TWO_PI);
+                pts.push({ nx: cos(a), ny: sin(a), nseed: gseed + j * 0.1 });
+            }
+            this.grains.push({
+                scl: random(0.5, 0.8),
+                ox: random(-0.3, 0.3),
+                oy: random(-0.3, 0.3),
+                pts: pts,
+                gseed: gseed
+            });
+        }
+    }
+
+    initPos(w, h) {
+        this.bx = w / 2;
+        this.by = h / 2 + 180 - this.idx * 60;
+    }
+
+    drawLayer(st, depth) {
+        this.noff += st.inc;
+        push();
+        translate(st.x, st.y);
+        rotate(st.rot);
+        scale(st.scale);
+
+        fill(244 * depth, 241 * depth, 237 * depth);
+        noStroke();
+        this.drawPoly(this.pts, st.w / 2, st.h / 2, st.amp, st.freq, this.noff);
+
+        fill(244, 241, 237, 25);
+        for (let g of this.grains) {
+            push();
+            translate(g.ox * st.w, g.oy * st.h);
+            let gnoff = this.noff + (g.gseed % 10);
+            this.drawPoly(g.pts, (st.w / 2) * g.scl, (st.h / 2) * g.scl, st.amp, st.freq, gnoff);
+            pop();
+        }
+        pop();
+    }
+
+    drawPoly(pts, rx, ry, amp, freq, noffset) {
+        beginShape();
+        for (let i = 0; i < pts.length + 3; i++) {
+            let p = pts[i % pts.length];
+            let bx = p.nx * rx;
+            let by = p.ny * ry;
+            let nx = bx * freq + noffset;
+            let ny = by * freq + noffset;
+            let nv = (noise(nx, ny, p.nseed % 100) * 2 - 1) * amp;
+            let ang = atan2(by, bx);
+            curveVertex(bx + cos(ang) * nv, by + sin(ang) * nv);
+        }
+        endShape();
+    }
+}
+
+function setup() {
+    createCanvas(windowWidth, windowHeight, P2D);
+    for (let i = 0; i < 7; i++) {
+        let l = new Stratum(i);
+        l.initPos(width, height);
+        layers.push(l);
+    }
+    lastMouseTime = millis();
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+    layers.forEach(l => l.initPos(width, height));
+}
+
+function mouseMoved() {
+    lastMouseTime = millis();
+}
+
+function mousePressed() {
+    clickState.active = true;
+    clickState.start = millis();
+    clickState.targets = layers.map(() => ({ rot: random(-PI / 2, PI / 2) }));
+}
+
+function drawInteractionIndicator() {
+    let t = millis();
+    if (t > 4000) return;
+    push();
+    noStroke();
+    fill(244, 241, 237, map(t, 0, 4000, 180, 0));
+    translate(width / 2, 20);
+    beginShape();
+    vertex(0, -5); vertex(5, 0); vertex(0, 5); vertex(-5, 0);
+    endShape(CLOSE);
+    ellipse(-12, 0, 3, 3);
+    ellipse(12, 0, 3, 3);
+    pop();
+}
+
+function draw() {
+    let time = millis();
+    let cycle = time % 120000;
+
+    if (time - lastFcTime > 2000) {
+        let fr = frameRate();
+        if (fr < 50 && isSmooth) { noSmooth(); isSmooth = false; }
+        else if (fr >= 55 && !isSmooth) { smooth(); isSmooth = true; }
+        lastFcTime = time;
+    }
+
+    let mX = mouseX, mY = mouseY;
+    if (time - lastMouseTime > 8000) {
+        mX = width / 2;
+        mY = height / 3;
+    }
+    
+    let freqMult = map(mX, 0, width, 0.5, 2.5, true);
+    let rotBoost = map(mY, 0, height, 0, 25, true) * PI / 180;
+
+    background(13, 13, 15);
+
+    for (let i = 0; i < 7; i++) {
+        let l = layers[i];
+        let st = { x: l.bx, y: l.by, w: l.bw, h: l.bh, rot: 0, scale: 1, amp: 7.5, freq: 0.015, inc: 0.0008 };
+
+        let driftOffsets = [0, -40, 65, -85, 110, -120, 95];
+        let collY = [height * 0.95, height * 0.88, height * 0.81, height * 0.74, height * 0.68, height * 0.62, height * 0.57];
+        let collRot = [3, -7, 12, -15, 9, -5, 0];
+        let p2RotMult = [0, 0, 0, 0, 2, 3, 4];
+
+        let s1 = 1.01 + sin(time * 0.0013 + l.poff) * 0.03;
+        let s2 = 1.01 + sin(time * 0.0013 + l.poff) * 0.06;
+        let wob = sin(time * 0.0012 + l.seed) * 1.5;
+
+        let p1State = { x: l.bx, y: l.by + wob, w: l.bw, h: l.bh, rot: 0, scale: s1, amp: 7.5, freq: 0.015, inc: 0.0008 };
+
+        let p2T = easeInOutCubic(constrain((cycle - 30000) / 15000, 0, 1));
+        let p2R = sin(time * 0.00008 + l.seed) * p2RotMult[i] * PI / 180;
+        let p2State = {
+            x: l.bx + driftOffsets[i], y: l.by + wob, w: l.bw, h: l.bh,
+            rot: p2R, scale: s2, amp: 15, freq: 0.06, inc: 0.002
+        };
+
+        let holdState = {
+            x: width / 2, y: collY[i], w: l.bw * 1.1, h: l.bh * 0.8,
+            rot: collRot[i] * PI / 180, scale: s2, amp: 20, freq: 0.08, inc: 0.004
+        };
+
+        if (cycle < 30000) {
+            st = p1State;
+        } else if (cycle < 75000) {
+            st.x = lerp(p1State.x, p2State.x, p2T);
+            st.y = p1State.y;
+            st.w = p1State.w; st.h = p1State.h;
+            st.rot = lerp(p1State.rot, p2State.rot, p2T);
+            st.scale = lerp(p1State.scale, p2State.scale, p2T);
+            st.amp = lerp(p1State.amp, p2State.amp, p2T);
+            st.freq = lerp(p1State.freq, p2State.freq, p2T);
+            st.inc = lerp(p1State.inc, p2State.inc, p2T);
+        } else {
+            let collT = easeInQuad(constrain((cycle - 75000) / 8000, 0, 1));
+            let rotT = easeInQuad(constrain((cycle - 75000) / 12000, 0, 1));
+            let reconT = easeInOutCubic(constrain((cycle - 110000) / 6000, 0, 1));
+
+            if (cycle < 110000) {
+                st.x = lerp(p2State.x, holdState.x, collT);
+                st.y = lerp(p2State.y, holdState.y, collT);
+                st.w = lerp(p2State.w, holdState.w, collT);
+                st.h = lerp(p2State.h, holdState.h, collT);
+                st.rot = lerp(p2State.rot, holdState.rot, rotT);
+                st.scale = p2State.scale;
+                st.amp = lerp(p2State.amp, holdState.amp, collT);
+                st.freq = lerp(p2State.freq, holdState.freq, collT);
+                st.inc = lerp(p2State.inc, holdState.inc, collT);
+            } else {
+                st.x = lerp(holdState.x, p1State.x, reconT);
+                st.y = lerp(holdState.y, p1State.y, reconT);
+                st.w = lerp(holdState.w, p1State.w, reconT);
+                st.h = lerp(holdState.h, p1State.h, reconT);
+                st.rot = lerp(holdState.rot, p1State.rot, reconT);
+                st.scale = lerp(holdState.scale, p1State.scale, reconT);
+                st.amp = lerp(holdState.amp, p1State.amp, reconT);
+                st.freq = lerp(holdState.freq, p1State.freq, reconT);
+                st.inc = lerp(holdState.inc, p1State.inc, reconT);
+            }
+        }
+
+        st.freq *= freqMult;
+        st.rot += rotBoost;
+
+        let ampMult = 1;
+        if (clickState.active) {
+            let el = time - clickState.start;
+            if (el < 1500) {
+                let t = el / 1500;
+                st.x = lerp(st.x, width / 2, t);
+                st.y = lerp(st.y, height / 2, t);
+                st.rot = lerp(st.rot, clickState.targets[i].rot, t);
+                ampMult = 4;
+            } else if (el < 3500) {
+                let t = (el - 1500) / 2000;
+                let eT = easeOutElastic(t);
+                st.x = lerp(width / 2, st.x, eT);
+                st.y = lerp(height / 2, st.y, eT);
+                st.rot = lerp(clickState.targets[i].rot, st.rot, eT);
+                ampMult = map(eT, 0, 1, 4, 1);
+            } else {
+                clickState.active = false;
+            }
+        }
+        st.amp *= ampMult;
+
+        let depthFactor = map(i, 0, 6, 0.92, 1.0);
+        l.drawLayer(st, depthFactor);
+    }
+
+    drawInteractionIndicator();
+}
+</script>
+</head>
+<body>
+</body>
+</html>
