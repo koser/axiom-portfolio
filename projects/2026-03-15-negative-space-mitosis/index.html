@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Negative Space Mitosis</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #F8F8F6;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<script>
+let blobs = [];
+let seams = [];
+let voids = [];
+let lastMouseTime = 0;
+let globalRot = 0;
+let phase = 1;
+
+const easeInOutCubic = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    frameRate(60);
+    noiseDetail(4, 0.5);
+    blobs.push(new BlobForm(width / 2, height / 2, 160, 0));
+}
+
+function draw() {
+    let m = millis();
+    
+    if (m > 12000) phase = 2;
+    if (m > 45000) phase = 3;
+    if (m > 60000) globalRot += 0.0005;
+
+    let timeSinceMouse = m - lastMouseTime;
+    let mouseFactor = timeSinceMouse < 4000 ? map(timeSinceMouse, 0, 4000, 1, 0) : 0;
+    let timeScale = lerp(0.002, map(constrain(mouseX, 0, width), 0, width, 0.0005, 0.004), mouseFactor);
+    let influence = lerp(0, map(constrain(mouseY, 0, height), 0, height, -1.5, 1.5), mouseFactor);
+
+    background('#F8F8F6');
+
+    push();
+    translate(width / 2, height / 2);
+    rotate(globalRot);
+    translate(-width / 2, -height / 2);
+
+    manageVoids(m);
+
+    for (let i = seams.length - 1; i >= 0; i--) {
+        seams[i].display(m);
+        if (m - seams[i].birth > 2000) seams.splice(i, 1);
+    }
+
+    manageMerges(m);
+
+    for (let i = blobs.length - 1; i >= 0; i--) {
+        blobs[i].update(m, timeScale, influence, mouseFactor);
+        blobs[i].display(m, timeScale);
+        if (blobs[i].dead) blobs.splice(i, 1);
+    }
+    
+    pop();
+
+    drawInteractionIndicator(m);
+}
+
+function manageMerges(m) {
+    if (phase < 2) return;
+    let len = blobs.length;
+    for (let i = 0; i < len; i++) {
+        for (let j = i + 1; j < len; j++) {
+            let b1 = blobs[i], b2 = blobs[j];
+            if (b1.dead || b2.dead) continue;
+            if (b1.state > 0 || b2.state > 0) continue;
+            let d = dist(b1.x, b1.y, b2.x, b2.y);
+            if (d < (b1.r + b2.r) * 0.7) {
+                b1.overlapTime = (b1.overlapTime || 0) + 16;
+                if (b1.overlapTime > 1500 && blobs.length > 2) {
+                    let nx = (b1.x + b2.x) / 2;
+                    let ny = (b1.y + b2.y) / 2;
+                    let nr = sqrt(b1.r * b1.r + b2.r * b2.r) * 0.85;
+                    blobs.push(new BlobForm(nx, ny, nr, max(b1.gen, b2.gen) + 1));
+                    seams.push(new SeamLine(b1.x, b1.y, b2.x, b2.y, m));
+                    b1.dead = true;
+                    b2.dead = true;
+                }
+            } else {
+                b1.overlapTime = max(0, (b1.overlapTime || 0) - 16);
+            }
+        }
+    }
+}
+
+function manageVoids(m) {
+    if (random() < 0.2) voids.push({x: random(-200, width+200), y: random(-200, height+200), age: 0});
+    
+    for (let i = voids.length - 1; i >= 0; i--) {
+        let v = voids[i];
+        let minD = 9999;
+        for (let b of blobs) {
+            let d = dist(v.x, v.y, b.x, b.y) - b.r;
+            if (d < minD) minD = d;
+        }
+        
+        if (minD > 120) {
+            v.age += 16;
+            if (v.age > 1000) {
+                let alpha = min(255, (v.age - 1000) * 0.5);
+                push();
+                strokeWeight(1);
+                stroke(26, 26, 26, alpha * 0.4);
+                line(v.x - 4, v.y, v.x + 4, v.y);
+                line(v.x, v.y - 4, v.x, v.y + 4);
+                pop();
+            }
+            if (v.age > 3000) voids.splice(i, 1);
+        } else {
+            voids.splice(i, 1);
+        }
+    }
+}
+
+class BlobForm {
+    constructor(x, y, r, gen) {
+        this.x = x; this.y = y; this.r = constrain(r, 60, 220);
+        this.gen = gen;
+        this.seed = random(10000);
+        this.vx = random(-0.3, 0.3);
+        this.vy = random(-0.3, 0.3);
+        this.birthTime = millis();
+        this.state = 0; 
+        this.actionStartTime = 0;
+        this.points = 40;
+        this.rot = random(TWO_PI);
+        this.dead = false;
+        this.targetDivTime = 7000 + random(2000);
+    }
+
+    update(m, timeScale, influence, mouseFactor) {
+        let age = m - this.birthTime;
+        
+        if (this.state === 0 && phase > 1 && this.gen < 4 && age > this.targetDivTime && blobs.length < 12) {
+            if (random() < 0.02) this.startDivision(m);
+        }
+
+        if (this.state === 1) {
+            let p = (m - this.actionStartTime) / 3000;
+            if (p >= 1.0) this.divide(m);
+        }
+
+        this.x += this.vx;
+        this.y += this.vy;
+        this.rot += 0.001;
+
+        let accX = (noise(this.seed, m * 0.0005) - 0.5) * 0.05;
+        let accY = (noise(this.seed + 100, m * 0.0005) - 0.5) * 0.05;
+
+        if (phase === 3) {
+            let dCenter = dist(this.x, this.y, width / 2, height / 2);
+            if (dCenter < 280) {
+                accX += (this.x - width / 2) * 0.0002;
+                accY += (this.y - height / 2) * 0.0002;
+            } else {
+                accX -= (this.x - width / 2) * 0.0001;
+                accY -= (this.y - height / 2) * 0.0001;
+            }
+        }
+
+        if (mouseFactor > 0.01) {
+            let tx = mouseX - width / 2;
+            let ty = mouseY - height / 2;
+            let mx = tx * cos(-globalRot) - ty * sin(-globalRot) + width / 2;
+            let my = tx * sin(-globalRot) + ty * cos(-globalRot) + height / 2;
+            
+            let dMouse = dist(this.x, this.y, mx, my);
+            if (dMouse > 10 && dMouse < 400) {
+                accX += ((mx - this.x) / dMouse) * influence * 0.05;
+                accY += ((my - this.y) / dMouse) * influence * 0.05;
+            }
+        }
+
+        let margin = 100;
+        if (this.x < margin) accX += 0.05;
+        if (this.x > width - margin) accX -= 0.05;
+        if (this.y < margin) accY += 0.05;
+        if (this.y > height - margin) accY -= 0.05;
+
+        this.vx = constrain(this.vx + accX, -1.2, 1.2);
+        this.vy = constrain(this.vy + accY, -1.2, 1.2);
+    }
+
+    startDivision(m) {
+        this.state = 1;
+        this.actionStartTime = m;
+    }
+
+    divide(m) {
+        let offset = this.r * 0.4;
+        let b1 = new BlobForm(this.x - cos(this.rot) * offset, this.y - sin(this.rot) * offset, this.r * 0.75, this.gen + 1);
+        let b2 = new BlobForm(this.x + cos(this.rot) * offset, this.y + sin(this.rot) * offset, this.r * 0.75, this.gen + 1);
+        
+        let driftSpeed = 0.8;
+        b1.vx = -cos(this.rot) * driftSpeed + random(-0.2, 0.2);
+        b1.vy = -sin(this.rot) * driftSpeed + random(-0.2, 0.2);
+        b2.vx = cos(this.rot) * driftSpeed + random(-0.2, 0.2);
+        b2.vy = sin(this.rot) * driftSpeed + random(-0.2, 0.2);
+        
+        b1.seed = this.seed + 100;
+        b2.seed = this.seed + 200;
+        
+        blobs.push(b1, b2);
+        seams.push(new SeamLine(b1.x, b1.y, b2.x, b2.y, m));
+        this.dead = true;
+    }
+
+    display(m, timeScale) {
+        push();
+        translate(this.x, this.y);
+        rotate(this.rot);
+
+        let age = m - this.birthTime;
+        let c1 = color('#0D0D0D');
+        let c2 = color('#050505');
+        fill(lerpColor(c1, c2, min(age / 30000, 1)));
+        noStroke();
+
+        let p = 0;
+        let stretchX = 1, stretchY = 1;
+        if (this.state === 1) {
+            p = constrain((m - this.actionStartTime) / 3000, 0, 1);
+            let easeP = easeInOutCubic(p);
+            stretchX = lerp(1, 1.6, easeP);
+            stretchY = lerp(1, 0.85, easeP);
+        }
+
+        let bScale = age < 1500 ? 1 - pow(1 - age / 1500, 3) : 1;
+        scale(bScale * (1 + sin(m * 0.0018) * 0.05));
+
+        beginShape();
+        for (let i = 0; i < this.points; i++) {
+            let angle = (i / this.points) * TWO_PI;
+            let nx = cos(angle) * 0.8 + this.seed;
+            let ny = sin(angle) * 0.8 + this.seed;
+            
+            let n1 = (noise(nx, ny, m * timeScale) - 0.5) * 70;
+            let n2 = (noise(nx * 2.5, ny * 2.5, m * timeScale * 2.5) - 0.5) * 24;
+
+            let currentR = this.r + n1 + n2;
+
+            if (this.state === 1 && p > 0.6) {
+                let pinchAmt = (p - 0.6) / 0.4;
+                let squeeze = pow(abs(sin(angle)), 4) * (this.r * 0.7) * pinchAmt;
+                currentR -= squeeze;
+            }
+
+            vertex(cos(angle) * currentR * stretchX, sin(angle) * currentR * stretchY);
+        }
+        endShape(CLOSE);
+        pop();
+    }
+}
+
+class SeamLine {
+    constructor(x1, y1, x2, y2, m) {
+        this.x1 = x1; this.y1 = y1;
+        this.x2 = x2; this.y2 = y2;
+        this.birth = m;
+        let perpX = -(y2 - y1) * 0.5;
+        let perpY = (x2 - x1) * 0.5;
+        let midX = (x1 + x2) / 2;
+        let midY = (y1 + y2) / 2;
+        this.cx1 = midX + perpX + random(-20, 20);
+        this.cy1 = midY + perpY + random(-20, 20);
+        this.cx2 = midX - perpX + random(-20, 20);
+        this.cy2 = midY - perpY + random(-20, 20);
+    }
+
+    display(m) {
+        let age = m - this.birth;
+        let alpha = map(age, 0, 2000, 255, 0);
+        let sw = map(age, 0, 2000, 3, 1);
+        push();
+        noFill();
+        stroke(242, 242, 238, alpha);
+        strokeWeight(sw);
+        beginShape();
+        vertex(this.x1, this.y1);
+        bezierVertex(this.cx1, this.cy1, this.cx2, this.cy2, this.x2, this.y2);
+        endShape();
+        pop();
+    }
+}
+
+function drawInteractionIndicator(m) {
+    if (m > 4000) return;
+    let alpha = map(m, 0, 4000, 180, 0);
+    push();
+    fill(26, 26, 26, alpha);
+    noStroke();
+    rectMode(CENTER);
+    rect(width / 2, 20, 12, 18, 6);
+    ellipse(width / 2, 16, 2, 4);
+    pop();
+}
+
+function mouseMoved() {
+    lastMouseTime = millis();
+}
+
+function mousePressed() {
+    lastMouseTime = millis();
+    let m = millis();
+    let closest = null;
+    let minD = 300;
+    
+    let tx = mouseX - width / 2;
+    let ty = mouseY - height / 2;
+    let mx = tx * cos(-globalRot) - ty * sin(-globalRot) + width / 2;
+    let my = tx * sin(-globalRot) + ty * cos(-globalRot) + height / 2;
+
+    for (let b of blobs) {
+        let d = dist(mx, my, b.x, b.y);
+        if (d < minD && b.state === 0) {
+            minD = d;
+            closest = b;
+        }
+    }
+
+    if (closest) {
+        closest.startDivision(m);
+    } else {
+        let nb = new BlobForm(mx, my, random(100, 160), 0);
+        nb.vx = random(-0.9, 0.9);
+        nb.vy = random(-0.9, 0.9);
+        blobs.push(nb);
+    }
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+</body>
+</html>
