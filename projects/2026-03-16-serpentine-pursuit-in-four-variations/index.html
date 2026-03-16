@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serpentine Pursuit</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #f7f7f2;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG19</span> <span class="ap-ttl">Serpentine Pursuit in Four Variations</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>A 2x2 grid dividing the canvas into four distinct territories, each containing a 5x5 arrangement of pulsing circles (25 circles per quadrant, 100 total). A continuous black stroke inhabits each quadrant with fundamentally different wrapping logic: top-left uses tight spiral coiling around sequential circles, top-right employs figure-eight infinity patterns between circle pairs, bottom-left traces concentric orbital rings around circle clusters, bottom-right weaves angular zigzag paths connecting diagonal circle sequences. Each stroke has fixed length (1200px) and continuously grows from its head while retracting from its tail, creating perpetual forward motion. The strokes exhibit intelligent pathfinding behavior, steering toward the nearest unwrapped circle using bezier control points that curve around obstacles. Circles within each quadrant pulse in synchronized waves that propagate from the stroke's current position, creating ripple effects. As circles pulse, they emit subtle force fields (attraction radius 80px, strength 0.3) that pull the stroke's heading vector toward their centers. The stroke never stops evolving — when it completes wrapping a circle, it immediately seeks the next target, creating an endless dance of pursuit and embrace. Circles that have been recently wrapped glow briefly (2.4s fade) before returning to dormant state. The piece explores autonomous behavior, emergent pathfinding, and the beauty of constraint-based motion where intelligence arises from simple rules.</p></div>
+</div>
+
+<script>
+const C_BG = '#f7f7f2';
+const C_STROKE = '#0d0d0d';
+const C_DORMANT = '#c9c9c4';
+const C_SHADOW = 'rgba(5,5,5,0.4)';
+const C_PEAK = '#e2e2dc';
+
+let nodes = [];
+let snakes = [];
+
+class Node {
+    constructor(x, y, quad, index, w) {
+        this.pos = createVector(x, y);
+        this.quad = quad;
+        this.index = index;
+        this.baseR = w * 0.07;
+        this.wrapped = false;
+        this.wrapTime = -9999;
+        this.phase = random(TWO_PI);
+        this.scale = 1.0;
+        this.isGlowing = false;
+    }
+
+    update(t, snakesData) {
+        let timeSinceWrap = t - this.wrapTime;
+        this.isGlowing = timeSinceWrap < 2400;
+        
+        let freq = this.isGlowing ? 0.00075 : 0.0005;
+        this.scale = 1.0 + 0.15 * Math.sin(t * freq + this.phase);
+        
+        if (this.isGlowing) {
+            let decay = Math.exp(-timeSinceWrap / 800);
+            this.scale *= (1.0 + 0.12 * decay);
+        }
+
+        // Pulse sync local to stroke heads
+        for (let s of snakesData) {
+            if (s.quad === this.quad) {
+                let d = p5.Vector.dist(this.pos, s.head);
+                if (d < 80) {
+                    this.scale *= 1.1; // Proximity swell
+                }
+            }
+        }
+    }
+
+    draw(t) {
+        let r = this.baseR * this.scale;
+        let cDormant = color(C_DORMANT);
+        let cPeak = color(C_PEAK);
+        
+        let col = cDormant;
+        if (this.isGlowing) {
+            let amt = map(t - this.wrapTime, 0, 2400, 1, 0);
+            amt = constrain(amt, 0, 1);
+            col = lerpColor(cDormant, cPeak, amt);
+        }
+
+        fill(col);
+        stroke(C_STROKE);
+        strokeWeight(1.2);
+        
+        beginShape();
+        for (let a = 0; a < TWO_PI; a += PI/8) {
+            let nOff = noise(this.pos.x * 0.01, this.pos.y * 0.01, a + t * 0.001) * 2 - 1;
+            let currentR = r + nOff;
+            vertex(this.pos.x + cos(a) * currentR, this.pos.y + sin(a) * currentR);
+        }
+        endShape(CLOSE);
+    }
+}
+
+class Snake {
+    constructor(quad, strategy) {
+        this.quad = quad;
+        this.strategy = strategy;
+        this.trail = [];
+        this.head = createVector();
+        this.heading = 0;
+        this.state = 0; // 0: Transit, 1: Wrap
+        this.target = null;
+        this.wrapCenter = null;
+        this.wrapAngle = 0;
+        this.wrapDest = 0;
+        this.wrapRadius = 0;
+        this.maxLen = 180;
+        this.speed = 2.4;
+    }
+
+    assignTarget(allNodes) {
+        let myNodes = allNodes.filter(n => n.quad === this.quad);
+        let unvisited = myNodes.filter(n => !n.wrapped);
+        
+        if (unvisited.length === 0) {
+            myNodes.forEach(n => n.wrapped = false);
+            unvisited = myNodes;
+        }
+
+        // 4 Variations of logic
+        if (this.strategy === 0) {
+            // Sequential / Spiral attempt
+            unvisited.sort((a,b) => a.index - b.index);
+            this.target = unvisited[0];
+        } else if (this.strategy === 1) {
+            // Nearest (Infinity-like tight clustering)
+            unvisited.sort((a,b) => p5.Vector.dist(this.head, a.pos) - p5.Vector.dist(this.head, b.pos));
+            this.target = unvisited[0];
+        } else if (this.strategy === 2) {
+            // Furthest (Concentric sweeping jumps)
+            unvisited.sort((a,b) => p5.Vector.dist(this.head, b.pos) - p5.Vector.dist(this.head, a.pos));
+            this.target = unvisited[0];
+        } else {
+            // Zigzag / Diagonal bias
+            unvisited.sort((a,b) => (a.pos.x + a.pos.y) - (b.pos.x + b.pos.y));
+            this.target = unvisited[0];
+        }
+    }
+
+    update(t, allNodes) {
+        if (!this.target) this.assignTarget(allNodes);
+
+        if (this.state === 0) {
+            let desiredVec = p5.Vector.sub(this.target.pos, this.head);
+            let d = desiredVec.mag();
+            
+            // Force field attraction from all nearby nodes
+            let steer = desiredVec.normalize();
+            for (let n of allNodes) {
+                if (n.quad === this.quad) {
+                    let distToNode = p5.Vector.dist(this.head, n.pos);
+                    if (distToNode < 80) {
+                        let pull = p5.Vector.sub(n.pos, this.head).normalize().mult(0.3);
+                        steer.add(pull);
+                    }
+                }
+            }
+            steer.normalize();
+
+            let targetHeading = steer.heading();
+            let angleDiff = atan2(sin(targetHeading - this.heading), cos(targetHeading - this.heading));
+            
+            // Strategy specific stiffness
+            let turnRate = this.strategy === 3 ? 0.15 : 0.08; 
+            this.heading += angleDiff * turnRate;
+
+            this.head.x += cos(this.heading) * this.speed;
+            this.head.y += sin(this.heading) * this.speed;
+
+            if (d < 45) {
+                this.state = 1; // Enter wrap
+                this.wrapCenter = this.target.pos.copy();
+                this.wrapRadius = d;
+                let toHead = p5.Vector.sub(this.head, this.wrapCenter);
+                this.wrapAngle = toHead.heading();
+                // Wrap roughly 240 degrees (4.18 rad) clockwise
+                this.wrapDest = this.wrapAngle + 4.18; 
+            }
+        } else {
+            // Wrapping logic
+            let orbitSpeed = this.speed / this.wrapRadius;
+            this.wrapAngle += orbitSpeed;
+            this.heading = this.wrapAngle + HALF_PI;
+
+            this.head.x = this.wrapCenter.x + cos(this.wrapAngle) * this.wrapRadius;
+            this.head.y = this.wrapCenter.y + sin(this.wrapAngle) * this.wrapRadius;
+
+            // Tighten wrap slightly
+            if (this.wrapRadius > this.target.baseR + 10) {
+                this.wrapRadius -= 0.2;
+            }
+
+            if (this.wrapAngle >= this.wrapDest) {
+                this.target.wrapped = true;
+                this.target.wrapTime = t;
+                this.assignTarget(allNodes);
+                this.state = 0; // Return to transit
+            }
+        }
+
+        this.trail.push(this.head.copy());
+        if (this.trail.length > this.maxLen) {
+            this.trail.shift();
+        }
+    }
+
+    draw() {
+        if (this.trail.length < 2) return;
+
+        strokeWeight(3.8);
+        strokeCap(ROUND);
+        strokeJoin(ROUND);
+        noFill();
+
+        // Depth Shadow Layer
+        stroke(C_SHADOW);
+        beginShape();
+        for (let pt of this.trail) curveVertex(pt.x - 1, pt.y - 1);
+        endShape();
+
+        // Top Layer
+        stroke(C_STROKE);
+        beginShape();
+        for (let pt of this.trail) curveVertex(pt.x, pt.y);
+        endShape();
+    }
+}
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    initSystem();
+    noiseSeed(999);
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+    initSystem();
+}
+
+function initSystem() {
+    nodes = [];
+    snakes = [];
+    
+    let w = width / 2 - 4;
+    let h = height / 2 - 4;
+    
+    let quads = [
+        { x: 0, y: 0 },
+        { x: width / 2 + 4, y: 0 },
+        { x: 0, y: height / 2 + 4 },
+        { x: width / 2 + 4, y: height / 2 + 4 }
+    ];
+
+    for (let q = 0; q < 4; q++) {
+        let stepX = w * 0.18;
+        let stepY = h * 0.18;
+        let startX = quads[q].x + w / 2 - (stepX * 2);
+        let startY = quads[q].y + h / 2 - (stepY * 2);
+
+        let quadNodes = [];
+        for (let i = 0; i < 5; i++) {
+            for (let j = 0; j < 5; j++) {
+                let n = new Node(startX + j * stepX, startY + i * stepY, q, i * 5 + j, w);
+                nodes.push(n);
+                quadNodes.push(n);
+            }
+        }
+
+        let snake = new Snake(q, q);
+        
+        // Setup initial position per quadrant logic
+        let startNode;
+        if (q === 0) startNode = quadNodes[0];
+        if (q === 1) startNode = quadNodes[12];
+        if (q === 2) startNode = quadNodes[24];
+        if (q === 3) startNode = quadNodes[4];
+        
+        snake.head = startNode.pos.copy().add(15, 15);
+        snake.assignTarget(nodes);
+        snakes.push(snake);
+    }
+}
+
+function draw() {
+    background(C_BG);
+    let t = millis();
+
+    for (let n of nodes) {
+        n.update(t, snakes);
+        n.draw(t);
+    }
+
+    for (let s of snakes) {
+        s.update(t, nodes);
+        s.draw();
+    }
+}
+</script>
+</body>
+</html>
