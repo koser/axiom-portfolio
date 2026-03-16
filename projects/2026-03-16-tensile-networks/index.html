@@ -66,10 +66,11 @@ function initSystem() {
     });
   }
   
-  // Distribute paired filaments across the width
-  let density = map(width, 400, 2000, 15, 60);
+  // Distribute paired filaments across a wider span to accommodate massive flow field displacement
+  let density = map(width, 400, 2000, 30, 100);
+  let spread = 800; // Substantial buffer to prevent edges from becoming empty
   for(let i=0; i<density; i++) {
-    let x = map(i, 0, density, -150, width + 150) + random(-40, 40);
+    let x = map(i, 0, density, -spread, width + spread) + random(-40, 40);
     let z = random(0.5, 1.4); // Z-index for parallax and thickness
     filaments.push(new Filament(x, z));
   }
@@ -92,13 +93,12 @@ class Filament {
     this.baseWidth = random(8, 35) * z;
     this.hasVein = random() > 0.5;
     
-    // Assign a unique, soft easing curve to each line to vary its pulsing behavior
+    // Individual soft easing curves to vary pulsing/bulging behavior
     const easeTypes = ['sine', 'cubic', 'quad', 'power'];
     this.easeType = easeTypes[floor(random(easeTypes.length))];
     this.easePower = random(1.5, 3.5); // only used if type is 'power'
     
-    // Threshold determining when the line separates enough to form a "white shaped gap"
-    // Tuned to ensure it hits a few times but not constantly
+    // Threshold determining when the line separates to form a "white shaped gap"
     this.gapThreshold = random(0.78, 0.92);
   }
   
@@ -120,24 +120,38 @@ class Filament {
     let centerPts = [];
     let gapData = [];
     
+    // 2D Noise field parameters that govern the overall rhythm of the composition
+    const fieldScaleX = 0.0008;
+    const fieldScaleY = 0.0015;
+    const timeScale = 0.00015;
+    
     for(let i=0; i<this.ptsCount; i++) {
       let y = (i - 2) * this.spacing;
-      let ny = y * 0.0015;
-      let nt = t * 0.0003;
       
-      // Primary natural sway based on location and time
-      let sway = (noise(this.baseX * 0.005, ny, nt) - 0.5) * 450 * this.z;
+      // Sample the shared 2D Perlin noise field based on exact spatial coordinates
+      // This creates the unified, synchronized flow across all filaments
+      let nX = this.baseX * fieldScaleX;
+      let nY = y * fieldScaleY;
+      let nT = t * timeScale;
       
-      // Secondary lively wobble specific to this filament
-      let wobble = (noise(this.seed, ny * 3, nt * 1.5) - 0.5) * 80 * this.z;
+      let field1 = noise(nX, nY, nT) - 0.5;
+      let field2 = noise(nX * 2.5 + 100, nY * 2.5 + 100, nT * 1.5) - 0.5;
+      
+      // The horizontal curvature is deeply governed by the global fields
+      let sway = (field1 * 1200 + field2 * 300) * this.z;
+      
+      // Minute, individual noise to retain cellular/organic independence within the field
+      let wobble = (noise(this.seed, y * 0.004, t * 0.0003) - 0.5) * 40 * this.z;
       
       let cx = this.baseX + sway + wobble;
       
-      // Calculate raw bulging noise and stretch the domain to ensure we occasionally hit peaks
+      // Calculate individual raw bulging noise (applied individually per filament)
+      let ny = y * 0.0015;
+      let nt = t * 0.0003;
       let rawNoise = noise(this.seed + 500, ny * 2, nt * 1.8);
       let n = map(rawNoise, 0.2, 0.8, 0, 1, true); 
       
-      // Apply the filament's unique easing curve
+      // Apply the filament's unique easing curve for thickness
       let widthEased = this.ease(n, this.easeType, this.easePower);
       let dynamicWidth = map(widthEased, 0, 1, 2, this.baseWidth * 2.8);
       
@@ -290,7 +304,7 @@ function draw() {
     pop();
   }
   
-  // Render organic pairings and their gaps
+  // Render organic pairings governed by the shared noise field
   for(let f of filaments) {
     f.draw(t);
   }
