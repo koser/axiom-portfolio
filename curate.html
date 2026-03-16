@@ -6,23 +6,30 @@
     <title>Axiom — Curate</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a0a0a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-        .header { padding: 3rem 2rem 2rem; text-align: center; position: relative; }
+        html, body { height: 100%; overflow: hidden; }
+        body { background: #0a0a0a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; }
+        .header { padding: 2rem 2rem 1rem; text-align: center; flex-shrink: 0; }
         .header h1 { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.3em; text-transform: uppercase; color: #fff; }
         .header p { margin-top: 0.5rem; color: #666; font-size: 0.9rem; }
-        .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem; padding: 2rem; max-width: 1400px; margin: 0 auto; }
-        .project-card { background: #141414; border: 1px solid #222; border-radius: 8px; text-decoration: none; color: inherit; transition: border-color 0.2s, transform 0.2s; overflow: hidden; position: relative; }
-        .project-card:hover { border-color: #444; transform: translateY(-2px); }
+        .projects-grid { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; gap: 1.5rem; padding: 1rem 2rem 2rem; flex: 1; align-items: stretch; -webkit-overflow-scrolling: touch; }
+        .projects-grid::-webkit-scrollbar { height: 6px; }
+        .projects-grid::-webkit-scrollbar-track { background: #111; }
+        .projects-grid::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        .projects-grid::-webkit-scrollbar-thumb:hover { background: #555; }
+        .project-card { flex: 0 0 auto; width: calc((100vh - 8rem) * 0.55); scroll-snap-align: start; background: #141414; border: 1px solid #222; border-radius: 8px; text-decoration: none; color: inherit; transition: border-color 0.2s; overflow: hidden; display: flex; flex-direction: column; }
+        .project-card:hover { border-color: #444; }
         .project-card[data-rating="green"] { border-color: #2d5a2d; }
-        .card-thumbnail { width: 100%; aspect-ratio: 16 / 10; overflow: hidden; background: #0a0a0a; }
-        .card-thumbnail img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .card-meta { padding: 1.2rem; }
-        .card-date { font-size: 0.75rem; color: #555; margin-bottom: 0.5rem; }
-        .card-title { font-size: 1.1rem; color: #fff; margin-bottom: 0.5rem; font-weight: 500; }
-        .card-concept { font-size: 0.85rem; color: #888; line-height: 1.4; }
-        .card-library { display: inline-block; margin-top: 0.75rem; font-size: 0.7rem; color: #555; border: 1px solid #333; padding: 0.15rem 0.5rem; border-radius: 3px; }
-        .card-project-id { display: inline-block; font-size: 0.7rem; color: #aaa; background: #1e1e1e; border: 1px solid #333; padding: 0.1rem 0.45rem; border-radius: 3px; margin-bottom: 0.4rem; font-family: monospace; letter-spacing: 0.05em; }
-        @media (max-width: 640px) { .projects-grid { grid-template-columns: 1fr; padding: 1rem; } }
+        .card-thumbnail { width: 100%; flex: 1; overflow: hidden; background: #0a0a0a; position: relative; }
+        .card-thumbnail .thumb-base { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+        .card-thumbnail .thumb-over { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; opacity: 0; transition: opacity 0.6s ease; pointer-events: none; }
+        .card-thumbnail .thumb-over.visible { opacity: 1; }
+        .card-meta { padding: 1rem; flex-shrink: 0; }
+        .card-date { font-size: 0.75rem; color: #555; margin-bottom: 0.3rem; }
+        .card-title { font-size: 1rem; color: #fff; margin-bottom: 0.3rem; font-weight: 500; }
+        .card-concept { font-size: 0.8rem; color: #888; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .card-project-id { display: inline-block; font-size: 0.7rem; color: #aaa; background: #1e1e1e; border: 1px solid #333; padding: 0.1rem 0.45rem; border-radius: 3px; margin-bottom: 0.3rem; font-family: monospace; letter-spacing: 0.05em; }
+        @media (max-height: 500px) { html, body { height: auto; overflow: auto; } .projects-grid { overflow-y: visible; flex: none; } .project-card { width: 280px; height: 400px; } }
+        @media (max-width: 480px) { html, body { height: auto; overflow: auto; } .projects-grid { overflow-y: visible; flex: none; } .project-card { width: 85vw; height: auto; } .card-thumbnail { aspect-ratio: 4 / 5; flex: none; } }
         .curate-btn { position: absolute; right: 2rem; top: 50%; transform: translateY(-50%); background: none; border: 1px solid #333; color: #666; padding: 0.4rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; letter-spacing: 0.1em; transition: all 0.2s; }
         .curate-btn:hover { border-color: #555; color: #aaa; }
         .curate-btn.active { border-color: #f0c040; color: #f0c040; }
@@ -59,7 +66,11 @@
     </div>
     <div class="projects-grid">
         <a href="projects/2026-03-16-woven-loop-grid/" class="project-card" data-project="2026-03-16-woven-loop-grid" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-16-woven-loop-grid/thumbnail.png" alt="Woven Loop Grid" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-16-woven-loop-grid">
+                <img src="projects/2026-03-16-woven-loop-grid/frame-0.png" alt="Woven Loop Grid" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-16</div>
                 <span class="card-project-id">AG18</span>
@@ -68,7 +79,11 @@
             </div>
         </a>
         <a href="projects/2026-03-16-vertical-interference-pattern/" class="project-card" data-project="2026-03-16-vertical-interference-pattern" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-16-vertical-interference-pattern/thumbnail.png" alt="Vertical Interference Pattern" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-16-vertical-interference-pattern">
+                <img src="projects/2026-03-16-vertical-interference-pattern/frame-0.png" alt="Vertical Interference Pattern" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-16</div>
                 <span class="card-project-id">AG23</span>
@@ -77,7 +92,11 @@
             </div>
         </a>
         <a href="projects/2026-03-16-vertical-erosion-field/" class="project-card" data-project="2026-03-16-vertical-erosion-field" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-16-vertical-erosion-field/thumbnail.png" alt="Vertical Erosion Field" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-16-vertical-erosion-field">
+                <img src="projects/2026-03-16-vertical-erosion-field/frame-0.png" alt="Vertical Erosion Field" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-16</div>
                 <span class="card-project-id">AG22</span>
@@ -86,7 +105,11 @@
             </div>
         </a>
         <a href="projects/2026-03-16-tensile-networks/" class="project-card" data-project="2026-03-16-tensile-networks" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-16-tensile-networks/thumbnail.png" alt="Tensile Networks" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-16-tensile-networks">
+                <img src="projects/2026-03-16-tensile-networks/frame-0.png" alt="Tensile Networks" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-16</div>
                 <span class="card-project-id">AG21</span>
@@ -95,7 +118,11 @@
             </div>
         </a>
         <a href="projects/2026-03-16-serpentine-pursuit-in-four-variations/" class="project-card" data-project="2026-03-16-serpentine-pursuit-in-four-variations" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-16-serpentine-pursuit-in-four-variations/thumbnail.png" alt="Serpentine Pursuit in Four Variations" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-16-serpentine-pursuit-in-four-variations">
+                <img src="projects/2026-03-16-serpentine-pursuit-in-four-variations/frame-0.png" alt="Serpentine Pursuit in Four Variations" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-16</div>
                 <span class="card-project-id">AG19</span>
@@ -104,7 +131,11 @@
             </div>
         </a>
         <a href="projects/2026-03-16-serpent-grid-orbits/" class="project-card" data-project="2026-03-16-serpent-grid-orbits" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-16-serpent-grid-orbits/thumbnail.png" alt="Serpent Grid Orbits" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-16-serpent-grid-orbits">
+                <img src="projects/2026-03-16-serpent-grid-orbits/frame-0.png" alt="Serpent Grid Orbits" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-16</div>
                 <span class="card-project-id">AG19</span>
@@ -113,7 +144,11 @@
             </div>
         </a>
         <a href="projects/2026-03-16-folded-authority/" class="project-card" data-project="2026-03-16-folded-authority" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-16-folded-authority/thumbnail.png" alt="Folded Authority" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-16-folded-authority">
+                <img src="projects/2026-03-16-folded-authority/frame-0.png" alt="Folded Authority" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-16</div>
                 <span class="card-project-id">AG17</span>
@@ -122,7 +157,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-void-divisions/" class="project-card" data-project="2026-03-15-void-divisions" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-void-divisions/thumbnail.png" alt="Void Divisions" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-void-divisions">
+                <img src="projects/2026-03-15-void-divisions/frame-0.png" alt="Void Divisions" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG11</span>
@@ -131,7 +170,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-stacked-breath-cycles/" class="project-card" data-project="2026-03-15-stacked-breath-cycles" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-stacked-breath-cycles/thumbnail.png" alt="Stacked Breath Cycles" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-stacked-breath-cycles">
+                <img src="projects/2026-03-15-stacked-breath-cycles/frame-0.png" alt="Stacked Breath Cycles" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG12</span>
@@ -140,7 +183,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-soft-machine-drift/" class="project-card" data-project="2026-03-15-soft-machine-drift" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-soft-machine-drift/thumbnail.png" alt="Soft Machine Drift" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-soft-machine-drift">
+                <img src="projects/2026-03-15-soft-machine-drift/frame-0.png" alt="Soft Machine Drift" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG09</span>
@@ -149,7 +196,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-sediment-collapse-liturgy/" class="project-card" data-project="2026-03-15-sediment-collapse-liturgy" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-sediment-collapse-liturgy/thumbnail.png" alt="Sediment Collapse Liturgy" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-sediment-collapse-liturgy">
+                <img src="projects/2026-03-15-sediment-collapse-liturgy/frame-0.png" alt="Sediment Collapse Liturgy" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG07</span>
@@ -158,7 +209,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-reuleaux-morphology/" class="project-card" data-project="2026-03-15-reuleaux-morphology" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-reuleaux-morphology/thumbnail.png" alt="Reuleaux Morphology" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-reuleaux-morphology">
+                <img src="projects/2026-03-15-reuleaux-morphology/frame-0.png" alt="Reuleaux Morphology" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG16</span>
@@ -167,7 +222,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-organ-drift/" class="project-card" data-project="2026-03-15-organ-drift" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-organ-drift/thumbnail.png" alt="Organ Drift" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-organ-drift">
+                <img src="projects/2026-03-15-organ-drift/frame-0.png" alt="Organ Drift" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG03</span>
@@ -176,7 +235,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-negative-space-mitosis/" class="project-card" data-project="2026-03-15-negative-space-mitosis" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-negative-space-mitosis/thumbnail.png" alt="Negative Space Mitosis" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-negative-space-mitosis">
+                <img src="projects/2026-03-15-negative-space-mitosis/frame-0.png" alt="Negative Space Mitosis" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG14</span>
@@ -185,7 +248,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-interval-drift/" class="project-card" data-project="2026-03-15-interval-drift" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-interval-drift/thumbnail.png" alt="Interval Drift" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-interval-drift">
+                <img src="projects/2026-03-15-interval-drift/frame-0.png" alt="Interval Drift" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG04</span>
@@ -194,7 +261,11 @@
             </div>
         </a>
         <a href="projects/2026-03-15-amplitude-erosion/" class="project-card" data-project="2026-03-15-amplitude-erosion" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-amplitude-erosion/thumbnail.png" alt="Amplitude Erosion" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-15-amplitude-erosion">
+                <img src="projects/2026-03-15-amplitude-erosion/frame-0.png" alt="Amplitude Erosion" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <span class="card-project-id">AG06</span>
@@ -203,6 +274,11 @@
             </div>
         </a>
         <a href="projects/2026-03-14-swim-lane-disintegration/" class="project-card" data-project="2026-03-14-swim-lane-disintegration" data-rating="yellow">
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-14-swim-lane-disintegration">
+                <img src="projects/2026-03-14-swim-lane-disintegration/frame-0.png" alt="Swim Lane Disintegration" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
                 <span class="card-project-id">AG02</span>
@@ -211,7 +287,11 @@
             </div>
         </a>
         <a href="projects/2026-03-14-perception-threshold/" class="project-card" data-project="2026-03-14-perception-threshold" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-14-perception-threshold/thumbnail.png" alt="Perception Threshold" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-14-perception-threshold">
+                <img src="projects/2026-03-14-perception-threshold/frame-0.png" alt="Perception Threshold" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
                 <h2 class="card-title">Perception Threshold</h2>
@@ -219,7 +299,11 @@
             </div>
         </a>
         <a href="projects/2026-03-14-orbital-debt/" class="project-card" data-project="2026-03-14-orbital-debt" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-14-orbital-debt/thumbnail.png" alt="Orbital Debt" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-14-orbital-debt">
+                <img src="projects/2026-03-14-orbital-debt/frame-0.png" alt="Orbital Debt" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
                 <span class="card-project-id">AG01</span>
@@ -228,7 +312,11 @@
             </div>
         </a>
         <a href="projects/2026-03-14-interference-pattern/" class="project-card" data-project="2026-03-14-interference-pattern" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-14-interference-pattern/thumbnail.png" alt="Interference Pattern" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-14-interference-pattern">
+                <img src="projects/2026-03-14-interference-pattern/frame-0.png" alt="Interference Pattern" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
                 <h2 class="card-title">Interference Pattern</h2>
@@ -236,7 +324,11 @@
             </div>
         </a>
         <a href="projects/2026-03-14-chromatic-dissonance/" class="project-card" data-project="2026-03-14-chromatic-dissonance" data-rating="yellow">
-            <div class="card-thumbnail"><img src="projects/2026-03-14-chromatic-dissonance/thumbnail.png" alt="Chromatic Dissonance" loading="lazy"></div>
+            <div class="card-thumbnail" data-frames="8" data-folder="projects/2026-03-14-chromatic-dissonance">
+                <img src="projects/2026-03-14-chromatic-dissonance/frame-0.png" alt="Chromatic Dissonance" loading="lazy" class="thumb-base">
+                <img src="" class="thumb-over thumb-a" alt="">
+                <img src="" class="thumb-over thumb-b" alt="">
+            </div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
                 <h2 class="card-title">Chromatic Dissonance</h2>
@@ -312,6 +404,57 @@
     });
 
     applyRatings();
+
+    // ─── Animated Thumbnail Hover ───────────────────────────────
+    const preloaded = {};
+
+    document.querySelectorAll('.card-thumbnail[data-frames]').forEach(thumb => {
+        const numFrames = parseInt(thumb.dataset.frames);
+        const folder = thumb.dataset.folder;
+        if (!numFrames || numFrames < 2 || !folder) return;
+
+        const imgA = thumb.querySelector('.thumb-a');
+        const imgB = thumb.querySelector('.thumb-b');
+        let frameIndex = 0;
+        let interval = null;
+        let activeImg = imgA;
+
+        thumb.closest('.project-card').addEventListener('mouseenter', () => {
+            // Preload frames on first hover
+            if (!preloaded[folder]) {
+                preloaded[folder] = [];
+                for (let i = 0; i < numFrames; i++) {
+                    const img = new Image();
+                    img.src = folder + '/frame-' + i + '.png';
+                    preloaded[folder].push(img);
+                }
+            }
+
+            frameIndex = 0;
+            // Show first frame immediately
+            imgA.src = folder + '/frame-0.png';
+            imgA.classList.add('visible');
+            activeImg = imgA;
+
+            interval = setInterval(() => {
+                frameIndex = (frameIndex + 1) % numFrames;
+                const nextSrc = folder + '/frame-' + frameIndex + '.png';
+                // Alternate between A and B for smooth crossfade
+                const incoming = (activeImg === imgA) ? imgB : imgA;
+                incoming.src = nextSrc;
+                incoming.classList.add('visible');
+                activeImg.classList.remove('visible');
+                activeImg = incoming;
+            }, 900);
+        });
+
+        thumb.closest('.project-card').addEventListener('mouseleave', () => {
+            if (interval) clearInterval(interval);
+            interval = null;
+            imgA.classList.remove('visible');
+            imgB.classList.remove('visible');
+        });
+    });
     </script>
 </body>
 </html>
