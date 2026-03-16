@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Folded Authority</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0d0d0d;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+    <script>
+        const C_VOID = '#0d0d0d';
+        const C_MASS = '#f7f5f0';
+        const C_SHAD = 'rgba(26, 26, 26, '; // #1a1a1a with alpha added later
+        const C_CUT  = '#0a0a0a';
+
+        let masses = [];
+        let fragments = [];
+        let noiseTexture;
+        
+        let globalCutAngle = -0.35; // ~ -20 degrees
+        let globalRotMult = 1.0;
+        let targetCutAngle = -0.35;
+        let targetRotMult = 1.0;
+        let lastMouseTime = 0;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            
+            // Generate static noise texture for performance
+            noiseTexture = createGraphics(width, height);
+            noiseTexture.noStroke();
+            for (let i = 0; i < 10000; i++) {
+                let alpha = random(8, 20); // 3-8% roughly
+                noiseTexture.fill(13, 13, 13, alpha);
+                noiseTexture.circle(random(width), random(height), random(0.5, 1.5));
+            }
+
+            // Cluster positions: center-left, upper-right
+            let initialPositions = [
+                createVector(width * 0.35, height * 0.45),
+                createVector(width * 0.65, height * 0.3),
+                createVector(width * 0.8, height * 0.2),
+                createVector(width * 0.5, height * 0.65)
+            ];
+
+            for (let pos of initialPositions) {
+                let size = random(280, 500);
+                masses.push(new Mass(pos.x, pos.y, size));
+            }
+        }
+
+        function draw() {
+            background(C_VOID);
+            image(noiseTexture, 0, 0);
+
+            let t = millis();
+
+            // Interaction state update
+            if (t - lastMouseTime > 5000) {
+                targetCutAngle = -0.35;
+                targetRotMult = 1.0;
+            } else {
+                targetCutAngle = map(mouseX, 0, width, 0, -PI/4, true);
+                if (mouseY < height * 0.2) {
+                    targetRotMult = 0;
+                } else {
+                    targetRotMult = map(mouseY, height * 0.2, height, 0.5, 2.5, true);
+                }
+            }
+            
+            globalCutAngle = lerp(globalCutAngle, targetCutAngle, 0.06);
+            globalRotMult = lerp(globalRotMult, targetRotMult, 0.04);
+
+            // Draw shadows first to keep them behind all masses
+            for (let m of masses) {
+                m.update(t);
+                m.displayShadow(t);
+            }
+
+            // Draw masses and cuts
+            for (let m of masses) {
+                m.displayBody(t);
+                m.displayCut(t);
+            }
+
+            // Update and draw fragments
+            for (let i = fragments.length - 1; i >= 0; i--) {
+                fragments[i].update();
+                fragments[i].display();
+                if (fragments[i].life <= 0) {
+                    fragments.splice(i, 1);
+                }
+            }
+
+            drawInteractionIndicator(t);
+        }
+
+        function mouseMoved() {
+            lastMouseTime = millis();
+        }
+
+        function mousePressed() {
+            lastMouseTime = millis();
+            let closest = null;
+            let minDist = 300;
+
+            for (let m of masses) {
+                let d = dist(mouseX, mouseY, m.pos.x, m.pos.y);
+                if (d < minDist) {
+                    minDist = d;
+                    closest = m;
+                }
+            }
+
+            if (closest && !closest.isForced) {
+                closest.triggerForceFold();
+                
+                // Spawn fragments
+                let numFrags = floor(random(8, 16));
+                for (let i = 0; i < numFrags; i++) {
+                    fragments.push(new Fragment(mouseX, mouseY));
+                }
+            }
+        }
+
+        function windowResized() {
+            let wr = windowWidth / width;
+            let hr = windowHeight / height;
+            let scaleRatio = min(wr, hr);
+
+            for (let m of masses) {
+                m.pos.x *= wr;
+                m.pos.y *= hr;
+                m.targetPos.x *= wr;
+                m.targetPos.y *= hr;
+                m.size *= scaleRatio;
+                for (let i = 0; i < m.baseRadii.length; i++) {
+                    m.baseRadii[i] *= scaleRatio;
+                }
+            }
+
+            resizeCanvas(windowWidth, windowHeight);
+            
+            // Re-render noise on resize
+            if (noiseTexture) noiseTexture.remove();
+            noiseTexture = createGraphics(width, height);
+            noiseTexture.noStroke();
+            for (let i = 0; i < 10000; i++) {
+                let alpha = random(8, 20);
+                noiseTexture.fill(13, 13, 13, alpha);
+                noiseTexture.circle(random(width), random(height), random(0.5, 1.5));
+            }
+        }
+
+        function drawInteractionIndicator(t) {
+            if (t > 4000) return;
+            let alpha = map(t, 0, 4000, 180, 0, true);
+            push();
+            fill(247, 245, 240, alpha);
+            noStroke();
+            textAlign(CENTER, TOP);
+            textSize(11);
+            drawingContext.letterSpacing = "2px";
+            text("MOUSE X/Y & CLICK", width / 2, 20);
+            
+            // Draw small cursor icon
+            translate(width / 2, 40);
+            stroke(247, 245, 240, alpha);
+            strokeWeight(1.5);
+            noFill();
+            beginShape();
+            vertex(0, 0);
+            vertex(8, 12);
+            vertex(3, 12);
+            vertex(3, 18);
+            vertex(-1, 18);
+            vertex(-1, 12);
+            vertex(-5, 12);
+            endShape(CLOSE);
+            pop();
+        }
+
+        class Mass {
+            constructor(x, y, size) {
+                this.pos = createVector(x, y);
+                this.shadowPos = createVector(x, y);
+                this.targetPos = createVector(x, y);
+                this.size = size;
+                this.numPoints = floor(random(6, 13));
+                
+                this.baseAngles = [];
+                this.baseRadii = [];
+                this.noiseOffsets = [];
+                
+                for (let i = 0; i < this.numPoints; i++) {
+                    this.baseAngles.push(map(i, 0, this.numPoints, 0, TWO_PI));
+                    this.baseRadii.push((size / 2) * random(0.7, 1.3));
+                    this.noiseOffsets.push(random(1000));
+                }
+
+                this.rot = random(TWO_PI);
+                this.baseRotSpeed = random(0.0015, 0.0025) * (random() > 0.5 ? 1 : -1);
+                
+                this.phaseOffset = random(100000); // For desynchronized cycles
+                this.lastMoveTime = 0;
+                
+                this.currentScale = 1.0;
+                this.targetScale = 1.0;
+                
+                this.isForced = false;
+                this.forceStartTime = 0;
+                
+                this.currentVerts = [];
+            }
+
+            update(t) {
+                let localTime = (t + this.phaseOffset) % 90000;
+                let phase = 0; // Breathing
+                
+                if (localTime > 25000 && localTime <= 80000) phase = 1; // Moving
+                else if (localTime > 80000) phase = 2; // Folding
+
+                // Repulsion
+                for (let other of masses) {
+                    if (other !== this) {
+                        let d = p5.Vector.dist(this.pos, other.pos);
+                        if (d < 200) {
+                            let force = p5.Vector.sub(this.pos, other.pos);
+                            force.setMag(0.5);
+                            this.pos.add(force);
+                        }
+                    }
+                }
+
+                if (this.isForced) {
+                    let ft = t - this.forceStartTime;
+                    if (ft < 750) {
+                        this.targetScale = 0.3;
+                    } else if (ft < 1250) {
+                        this.targetScale = 0.3; // Hold
+                    } else if (ft < 2250) {
+                        // Elastic expansion
+                        let progress = (ft - 1250) / 1000;
+                        this.targetScale = 1.3 + sin(progress * PI) * 0.15;
+                    } else if (ft < 3750) {
+                        this.targetScale = 1.0;
+                    } else {
+                        this.isForced = false;
+                    }
+                    // Faster lerp for forced interaction
+                    this.currentScale = lerp(this.currentScale, this.targetScale, 0.08);
+                } else {
+                    if (phase === 1) {
+                        if (t - this.lastMoveTime > 20000) {
+                            let angle = random(TWO_PI);
+                            let distance = random(100, 180);
+                            this.targetPos = p5.Vector.add(this.pos, createVector(cos(angle)*distance, sin(angle)*distance));
+                            this.targetPos.x = constrain(this.targetPos.x, 100, width - 100);
+                            this.targetPos.y = constrain(this.targetPos.y, 100, height - 100);
+                            this.lastMoveTime = t;
+                        }
+                        this.pos.lerp(this.targetPos, 0.015);
+                    } else if (phase === 2) {
+                        let foldTime = localTime - 80000;
+                        if (foldTime < 3000) this.targetScale = 0.5; // Compress
+                        else if (foldTime < 5000) this.targetScale = 0.5; // Hold
+                        else this.targetScale = 1.0; // Expand
+                    } else {
+                        this.targetScale = 1.0;
+                    }
+                    this.currentScale = lerp(this.currentScale, this.targetScale, 0.015);
+                }
+
+                let currentRotSpeed = this.baseRotSpeed * globalRotMult;
+                if (phase === 1 && !this.isForced) currentRotSpeed *= 1.8;
+                this.rot += currentRotSpeed;
+
+                // Shadow lag
+                this.shadowPos.lerp(this.pos, 0.08);
+
+                this.calculateVertices(t);
+            }
+
+            calculateVertices(t) {
+                this.currentVerts = [];
+                let tm = t * 0.001;
+                
+                for (let i = 0; i < this.numPoints; i++) {
+                    let nSlow = noise(this.noiseOffsets[i] + tm * 0.1);
+                    let nMed = noise(this.noiseOffsets[i] + 1000 + tm * 0.8);
+                    let nFast = noise(this.noiseOffsets[i] + 2000 + tm * 2.0);
+                    
+                    let displacement = (nSlow - 0.5) * 8 + (nMed - 0.5) * 6 + (nFast - 0.5) * 3;
+                    
+                    let angle = this.baseAngles[i] + this.rot;
+                    let r = (this.baseRadii[i] + displacement) * this.currentScale;
+                    
+                    this.currentVerts.push(createVector(cos(angle) * r, sin(angle) * r));
+                }
+            }
+
+            displayShadow(t) {
+                push();
+                translate(this.shadowPos.x + 6, this.shadowPos.y + 6);
+                let shadowAlpha = map(sin(t * 0.005), -1, 1, 0.15, 0.3);
+                fill(`${C_SHAD}${shadowAlpha})`);
+                noStroke();
+                
+                beginShape();
+                // Wrap points for smooth continuous curve
+                for (let i = 0; i < this.currentVerts.length + 3; i++) {
+                    let v = this.currentVerts[i % this.currentVerts.length];
+                    curveVertex(v.x, v.y);
+                }
+                endShape();
+                pop();
+            }
+
+            displayBody(t) {
+                push();
+                translate(this.pos.x, this.pos.y);
+                
+                // Opacity fade during fold
+                if (this.currentScale < 0.9 && !this.isForced) {
+                    let alpha = map(this.currentScale, 0.5, 1.0, 235, 255);
+                    fill(247, 245, 240, alpha);
+                } else {
+                    fill(C_MASS);
+                }
+                
+                noStroke();
+                beginShape();
+                for (let i = 0; i < this.currentVerts.length + 3; i++) {
+                    let v = this.currentVerts[i % this.currentVerts.length];
+                    curveVertex(v.x, v.y);
+                }
+                endShape();
+                pop();
+            }
+
+            displayCut(t) {
+                push();
+                translate(this.pos.x, this.pos.y);
+                rotate(globalCutAngle);
+                
+                let cutWidth = sin(t * 0.008) * 2.5 + 3.5;
+                if (this.isForced) cutWidth *= 2; // Accentuate during interaction
+                
+                fill(C_CUT);
+                noStroke();
+                rectMode(CENTER);
+                // Draw wide enough to bisect the entire shape reliably
+                rect(0, 0, this.size * 2.5, cutWidth);
+                pop();
+            }
+
+            triggerForceFold() {
+                this.isForced = true;
+                this.forceStartTime = millis();
+            }
+        }
+
+        class Fragment {
+            constructor(x, y) {
+                this.pos = createVector(x, y);
+                let angle = random(TWO_PI);
+                let speed = random(1.5, 4);
+                this.vel = createVector(cos(angle) * speed, sin(angle) * speed);
+                
+                this.rot = random(TWO_PI);
+                this.rotSpeed = radians(random(2, 8)) * (random() > 0.5 ? 1 : -1);
+                
+                this.life = random(180, 240);
+                this.maxLife = this.life;
+                
+                this.pts = floor(random(4, 8));
+                this.size = random(15, 40);
+                this.verts = [];
+                
+                for(let i = 0; i < this.pts; i++) {
+                    let a = map(i, 0, this.pts, 0, TWO_PI);
+                    let r = this.size * random(0.6, 1.0);
+                    this.verts.push(createVector(cos(a) * r, sin(a) * r));
+                }
+            }
+
+            update() {
+                this.pos.add(this.vel);
+                this.rot += this.rotSpeed;
+                this.life--;
+            }
+
+            display() {
+                let alpha = map(this.life, 0, this.maxLife, 0, 204); // max 80% opacity
+                push();
+                translate(this.pos.x, this.pos.y);
+                rotate(this.rot);
+                fill(247, 245, 240, alpha); // C_MASS with variable alpha
+                noStroke();
+                
+                beginShape();
+                for(let v of this.verts) {
+                    vertex(v.x, v.y);
+                }
+                endShape(CLOSE);
+                pop();
+            }
+        }
+    </script>
+</body>
+</html>

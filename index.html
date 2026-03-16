@@ -7,12 +7,17 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #0a0a0a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-        .header { padding: 3rem 2rem 2rem; text-align: center; }
+        .header { padding: 3rem 2rem 2rem; text-align: center; position: relative; }
         .header h1 { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.3em; text-transform: uppercase; color: #fff; }
         .header p { margin-top: 0.5rem; color: #666; font-size: 0.9rem; }
+        .curate-btn { position: absolute; right: 2rem; top: 50%; transform: translateY(-50%); background: none; border: 1px solid #333; color: #666; padding: 0.4rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; letter-spacing: 0.1em; transition: all 0.2s; }
+        .curate-btn:hover { border-color: #555; color: #aaa; }
+        .curate-btn.active { border-color: #f0c040; color: #f0c040; }
         .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem; padding: 2rem; max-width: 1400px; margin: 0 auto; }
-        .project-card { background: #141414; border: 1px solid #222; border-radius: 8px; text-decoration: none; color: inherit; transition: border-color 0.2s, transform 0.2s; overflow: hidden; }
+        .project-card { background: #141414; border: 1px solid #222; border-radius: 8px; text-decoration: none; color: inherit; transition: border-color 0.2s, transform 0.2s; overflow: hidden; position: relative; }
         .project-card:hover { border-color: #444; transform: translateY(-2px); }
+        .project-card[data-rating="green"] { border-color: #2d5a2d; }
+        .project-card[data-rating="red"] { border-color: #5a2d2d; }
         .card-thumbnail { width: 100%; aspect-ratio: 16 / 10; overflow: hidden; background: #0a0a0a; }
         .card-thumbnail img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .card-meta { padding: 1.2rem; }
@@ -20,147 +25,126 @@
         .card-title { font-size: 1.1rem; color: #fff; margin-bottom: 0.5rem; font-weight: 500; }
         .card-concept { font-size: 0.85rem; color: #888; line-height: 1.4; }
         .card-library { display: inline-block; margin-top: 0.75rem; font-size: 0.7rem; color: #555; border: 1px solid #333; padding: 0.15rem 0.5rem; border-radius: 3px; }
-        @media (max-width: 640px) { .projects-grid { grid-template-columns: 1fr; padding: 1rem; } }
+        .rating-controls { display: none; position: absolute; top: 0.6rem; right: 0.6rem; gap: 0.3rem; z-index: 10; }
+        body.curating .rating-controls { display: flex; }
+        .rating-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.5); cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; opacity: 0.7; }
+        .rating-dot:hover { transform: scale(1.2); opacity: 1; }
+        .rating-dot.active { opacity: 1; box-shadow: 0 0 8px rgba(255,255,255,0.3); transform: scale(1.15); }
+        .rating-dot.green { background: #4ade80; }
+        .rating-dot.yellow { background: #facc15; }
+        .rating-dot.red { background: #f87171; }
+        body.curating .project-card[data-rating="red"] { opacity: 0.4; }
+        .curate-bar { display: none; text-align: center; padding: 0.8rem; background: #111; border-bottom: 1px solid #222; }
+        body.curating .curate-bar { display: block; }
+        .curate-bar span { color: #888; font-size: 0.8rem; margin: 0 1rem; }
+        .curate-bar .count { color: #fff; }
+        .save-btn { background: none; border: 1px solid #4ade80; color: #4ade80; padding: 0.3rem 0.8rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; margin-left: 1rem; }
+        .save-btn:hover { background: #4ade8020; }
+        @media (max-width: 640px) { .projects-grid { grid-template-columns: 1fr; padding: 1rem; } .curate-btn { position: static; transform: none; margin-top: 1rem; } }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>Axiom</h1>
         <p>Autonomous generative art</p>
+        <button class="curate-btn" onclick="toggleCurate()">Curate</button>
+    </div>
+    <div class="curate-bar">
+        <span class="green">&#9679;</span> <span class="count" id="count-green">0</span>
+        <span class="yellow">&#9679;</span> <span class="count" id="count-yellow">0</span>
+        <span class="red">&#9679;</span> <span class="count" id="count-red">0</span>
+        <button class="save-btn" onclick="exportRatings()">Save ratings.json</button>
     </div>
     <div class="projects-grid">
-        <a href="projects/2026-03-15-reuleaux-morphology/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-reuleaux-morphology/thumbnail.png" alt="Reuleaux Morphology" loading="lazy"></div>
+        <a href="projects/2026-03-16-folded-authority/" class="project-card" data-project="2026-03-16-folded-authority" data-rating="yellow">
+            <div class="card-thumbnail"><img src="projects/2026-03-16-folded-authority/thumbnail.png" alt="Folded Authority" loading="lazy"></div>
             <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Reuleaux Morphology</h2>
-                <p class="card-concept">The moodboard shows a stark black and white geometric composition: a circle containing three curved triangular sections ...</p>
+                <div class="card-date">2026-03-16</div>
+                <h2 class="card-title">Folded Authority</h2>
+                <p class="card-concept">A study in the tension between rigid geometric cuts and soft, billowing forms. Large, irregular polygonal shapes with su...</p>
                 <span class="card-library">p5js</span>
             </div>
         </a>
-        <a href="projects/2026-03-15-negative-space-mitosis/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-negative-space-mitosis/thumbnail.png" alt="Negative Space Mitosis" loading="lazy"></div>
-            <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Negative Space Mitosis</h2>
-                <p class="card-concept">A choreographed study of organic division driven by negative space. Soft, bulbous forms — constructed from smoothed vert...</p>
-                <span class="card-library">p5js</span>
-            </div>
-        </a>
-        <a href="projects/2026-03-15-negative-space-mitosis/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-negative-space-mitosis/thumbnail.png" alt="Negative Space Mitosis" loading="lazy"></div>
-            <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Negative Space Mitosis</h2>
-                <p class="card-concept">A choreographed study of organic division driven by negative space. Soft, bulbous forms — constructed from smoothed vert...</p>
-                <span class="card-library">p5js</span>
-            </div>
-        </a>
-        <a href="projects/2026-03-15-stacked-breath-cycles/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-stacked-breath-cycles/thumbnail.png" alt="Stacked Breath Cycles" loading="lazy"></div>
-            <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Stacked Breath Cycles</h2>
-                <p class="card-concept">A study in horizontal compression and release inspired by the moodboard's stacked elliptical forms. Seven undulating str...</p>
-                <span class="card-library">p5js</span>
-            </div>
-        </a>
-        <a href="projects/2026-03-15-stacked-breath-cycles/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-stacked-breath-cycles/thumbnail.png" alt="Stacked Breath Cycles" loading="lazy"></div>
-            <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Stacked Breath Cycles</h2>
-                <p class="card-concept">A study in horizontal compression and release inspired by the moodboard's stacked elliptical forms. Seven undulating str...</p>
-                <span class="card-library">p5js</span>
-            </div>
-        </a>
-        <a href="projects/2026-03-15-void-divisions/" class="project-card">
+        <a href="projects/2026-03-15-void-divisions/" class="project-card" data-project="2026-03-15-void-divisions" data-rating="yellow">
             <div class="card-thumbnail"><img src="projects/2026-03-15-void-divisions/thumbnail.png" alt="Void Divisions" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <h2 class="card-title">Void Divisions</h2>
                 <p class="card-concept">A generative study of organic cellular division constrained by rigid geometry. Black voids pulse and subdivide within wh...</p>
-                <span class="card-library">p5js</span>
             </div>
         </a>
-        <a href="projects/2026-03-15-soft-machine-drift/" class="project-card">
+        <a href="projects/2026-03-15-stacked-breath-cycles/" class="project-card" data-project="2026-03-15-stacked-breath-cycles" data-rating="yellow">
+            <div class="card-thumbnail"><img src="projects/2026-03-15-stacked-breath-cycles/thumbnail.png" alt="Stacked Breath Cycles" loading="lazy"></div>
+            <div class="card-meta">
+                <div class="card-date">2026-03-15</div>
+                <h2 class="card-title">Stacked Breath Cycles</h2>
+                <p class="card-concept">A study in horizontal compression and release inspired by the moodboard's stacked elliptical forms. Seven undulating str...</p>
+            </div>
+        </a>
+        <a href="projects/2026-03-15-soft-machine-drift/" class="project-card" data-project="2026-03-15-soft-machine-drift" data-rating="yellow">
             <div class="card-thumbnail"><img src="projects/2026-03-15-soft-machine-drift/thumbnail.png" alt="Soft Machine Drift" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <h2 class="card-title">Soft Machine Drift</h2>
                 <p class="card-concept">A field of biomorphic capsule-forms emerge and dissolve in overlapping clusters, their soft pill-shaped bodies construct...</p>
-                <span class="card-library">p5js</span>
             </div>
         </a>
-        <a href="projects/2026-03-15-soft-machine-drift/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-soft-machine-drift/thumbnail.png" alt="Soft Machine Drift" loading="lazy"></div>
-            <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Soft Machine Drift</h2>
-                <p class="card-concept">A field of biomorphic capsule-forms emerge and dissolve in overlapping clusters, their soft pill-shaped bodies construct...</p>
-                <span class="card-library">p5js</span>
-            </div>
-        </a>
-        <a href="projects/2026-03-15-sediment-collapse-liturgy/" class="project-card">
+        <a href="projects/2026-03-15-sediment-collapse-liturgy/" class="project-card" data-project="2026-03-15-sediment-collapse-liturgy" data-rating="yellow">
             <div class="card-thumbnail"><img src="projects/2026-03-15-sediment-collapse-liturgy/thumbnail.png" alt="Sediment Collapse Liturgy" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <h2 class="card-title">Sediment Collapse Liturgy</h2>
                 <p class="card-concept">Stacked elliptical forms — representing geological strata or ritual cairns — slowly distort, fracture, and reassemble th...</p>
-                <span class="card-library">p5js</span>
             </div>
         </a>
-        <a href="projects/2026-03-15-sediment-collapse-liturgy/" class="project-card">
+        <a href="projects/2026-03-15-reuleaux-morphology/" class="project-card" data-project="2026-03-15-reuleaux-morphology" data-rating="yellow">
+            <div class="card-thumbnail"><img src="projects/2026-03-15-reuleaux-morphology/thumbnail.png" alt="Reuleaux Morphology" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Sediment Collapse Liturgy</h2>
-                <p class="card-concept">Stacked elliptical forms — representing geological strata or ritual cairns — slowly distort, fracture, and reassemble th...</p>
-                <span class="card-library">p5js</span>
+                <h2 class="card-title">Reuleaux Morphology</h2>
+                <p class="card-concept">The moodboard shows a stark black and white geometric composition: a circle containing three curved triangular sections ...</p>
             </div>
         </a>
-        <a href="projects/2026-03-15-amplitude-erosion/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-amplitude-erosion/thumbnail.png" alt="Amplitude Erosion" loading="lazy"></div>
-            <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Amplitude Erosion</h2>
-                <p class="card-concept">A soundwave-like form undergoes gradual material breakdown — its sharp, rhythmic vertical bars dissolve into scattered p...</p>
-                <span class="card-library">p5js</span>
-            </div>
-        </a>
-        <a href="projects/2026-03-15-interval-drift/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-interval-drift/thumbnail.png" alt="Interval Drift" loading="lazy"></div>
-            <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Interval Drift</h2>
-                <p class="card-concept">A study in perceptual instability through vertical stripe intervals. What appears stable reveals micro-shifts in spacing...</p>
-                <span class="card-library">p5js</span>
-            </div>
-        </a>
-        <a href="projects/2026-03-15-interval-drift/" class="project-card">
-            <div class="card-thumbnail"><img src="projects/2026-03-15-interval-drift/thumbnail.png" alt="Interval Drift" loading="lazy"></div>
-            <div class="card-meta">
-                <div class="card-date">2026-03-15</div>
-                <h2 class="card-title">Interval Drift</h2>
-                <p class="card-concept">A study in perceptual instability through vertical stripe intervals. What appears stable reveals micro-shifts in spacing...</p>
-                <span class="card-library">p5js</span>
-            </div>
-        </a>
-        <a href="projects/2026-03-15-organ-drift/" class="project-card">
+        <a href="projects/2026-03-15-organ-drift/" class="project-card" data-project="2026-03-15-organ-drift" data-rating="yellow">
             <div class="card-thumbnail"><img src="projects/2026-03-15-organ-drift/thumbnail.png" alt="Organ Drift" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-15</div>
                 <h2 class="card-title">Organ Drift</h2>
                 <p class="card-concept">Biomorphic forms orbit a void, splitting and reforming in cycles of cellular mitosis. The piece explores tension between...</p>
-                <span class="card-library">p5js</span>
             </div>
         </a>
-        <a href="projects/2026-03-14-swim-lane-disintegration/" class="project-card">
-            <div class="card-date">2026-03-14</div>
-            <h2 class="card-title">Swim Lane Disintegration</h2>
-            <p class="card-concept">A clinical visualization system collapses into organic chaos. Vertical swim lanes — sterile, columnar data structures — ...</p>
-            <span class="card-library">p5js</span>
+        <a href="projects/2026-03-15-negative-space-mitosis/" class="project-card" data-project="2026-03-15-negative-space-mitosis" data-rating="yellow">
+            <div class="card-thumbnail"><img src="projects/2026-03-15-negative-space-mitosis/thumbnail.png" alt="Negative Space Mitosis" loading="lazy"></div>
+            <div class="card-meta">
+                <div class="card-date">2026-03-15</div>
+                <h2 class="card-title">Negative Space Mitosis</h2>
+                <p class="card-concept">A choreographed study of organic division driven by negative space. Soft, bulbous forms — constructed from smoothed vert...</p>
+            </div>
         </a>
-        <a href="projects/2026-03-14-perception-threshold/" class="project-card">
+        <a href="projects/2026-03-15-interval-drift/" class="project-card" data-project="2026-03-15-interval-drift" data-rating="yellow">
+            <div class="card-thumbnail"><img src="projects/2026-03-15-interval-drift/thumbnail.png" alt="Interval Drift" loading="lazy"></div>
+            <div class="card-meta">
+                <div class="card-date">2026-03-15</div>
+                <h2 class="card-title">Interval Drift</h2>
+                <p class="card-concept">A study in perceptual instability through vertical stripe intervals. What appears stable reveals micro-shifts in spacing...</p>
+            </div>
+        </a>
+        <a href="projects/2026-03-15-amplitude-erosion/" class="project-card" data-project="2026-03-15-amplitude-erosion" data-rating="yellow">
+            <div class="card-thumbnail"><img src="projects/2026-03-15-amplitude-erosion/thumbnail.png" alt="Amplitude Erosion" loading="lazy"></div>
+            <div class="card-meta">
+                <div class="card-date">2026-03-15</div>
+                <h2 class="card-title">Amplitude Erosion</h2>
+                <p class="card-concept">A soundwave-like form undergoes gradual material breakdown — its sharp, rhythmic vertical bars dissolve into scattered p...</p>
+            </div>
+        </a>
+        <a href="projects/2026-03-14-swim-lane-disintegration/" class="project-card" data-project="2026-03-14-swim-lane-disintegration" data-rating="yellow">
+            <div class="card-meta">
+                <div class="card-date">2026-03-14</div>
+                <h2 class="card-title">Swim Lane Disintegration</h2>
+                <p class="card-concept">A clinical visualization system collapses into organic chaos. Vertical swim lanes — sterile, columnar data structures — ...</p>
+            </div>
+        </a>
+        <a href="projects/2026-03-14-perception-threshold/" class="project-card" data-project="2026-03-14-perception-threshold" data-rating="yellow">
             <div class="card-thumbnail"><img src="projects/2026-03-14-perception-threshold/thumbnail.png" alt="Perception Threshold" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
@@ -168,7 +152,7 @@
                 <p class="card-concept">A dense field contains a single square that exists at the edge of visual certainty. As the viewer's gaze shifts (tracked...</p>
             </div>
         </a>
-        <a href="projects/2026-03-14-orbital-debt/" class="project-card">
+        <a href="projects/2026-03-14-orbital-debt/" class="project-card" data-project="2026-03-14-orbital-debt" data-rating="yellow">
             <div class="card-thumbnail"><img src="projects/2026-03-14-orbital-debt/thumbnail.png" alt="Orbital Debt" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
@@ -176,7 +160,7 @@
                 <p class="card-concept">Six weighted masses orbit two crossing beams, their trajectories gradually decaying into chaos. The piece explores the b...</p>
             </div>
         </a>
-        <a href="projects/2026-03-14-interference-pattern/" class="project-card">
+        <a href="projects/2026-03-14-interference-pattern/" class="project-card" data-project="2026-03-14-interference-pattern" data-rating="yellow">
             <div class="card-thumbnail"><img src="projects/2026-03-14-interference-pattern/thumbnail.png" alt="Interference Pattern" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
@@ -184,7 +168,7 @@
                 <p class="card-concept">A system of vertical ellipsoids engaged in continuous physical negotiation—pushing, pulling, and influencing each other'...</p>
             </div>
         </a>
-        <a href="projects/2026-03-14-chromatic-dissonance/" class="project-card">
+        <a href="projects/2026-03-14-chromatic-dissonance/" class="project-card" data-project="2026-03-14-chromatic-dissonance" data-rating="yellow">
             <div class="card-thumbnail"><img src="projects/2026-03-14-chromatic-dissonance/thumbnail.png" alt="Chromatic Dissonance" loading="lazy"></div>
             <div class="card-meta">
                 <div class="card-date">2026-03-14</div>
@@ -193,5 +177,99 @@
             </div>
         </a>
     </div>
+    <script>
+    // ─── Curation Mode ─────────────────────────────────────────
+    const STORAGE_KEY = 'axiom-ratings';
+    let curating = false;
+
+    function loadRatings() {
+        try {
+            return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        } catch { return {}; }
+    }
+
+    function saveRatings(ratings) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(ratings));
+    }
+
+    function applyRatings() {
+        const ratings = loadRatings();
+        document.querySelectorAll('.project-card').forEach(card => {
+            const project = card.dataset.project;
+            if (ratings[project]) {
+                card.dataset.rating = ratings[project];
+            }
+            // Update visibility
+            if (!curating && card.dataset.rating === 'red') {
+                card.style.display = 'none';
+            } else {
+                card.style.display = '';
+            }
+            // Update active dot
+            card.querySelectorAll('.rating-dot').forEach(dot => {
+                dot.classList.toggle('active', dot.classList.contains(card.dataset.rating));
+            });
+        });
+        updateCounts();
+    }
+
+    function updateCounts() {
+        let g = 0, y = 0, r = 0;
+        document.querySelectorAll('.project-card').forEach(card => {
+            const rating = card.dataset.rating || 'yellow';
+            if (rating === 'green') g++;
+            else if (rating === 'red') r++;
+            else y++;
+        });
+        document.getElementById('count-green').textContent = g;
+        document.getElementById('count-yellow').textContent = y;
+        document.getElementById('count-red').textContent = r;
+    }
+
+    function toggleCurate() {
+        curating = !curating;
+        document.body.classList.toggle('curating', curating);
+        document.querySelector('.curate-btn').classList.toggle('active', curating);
+        applyRatings();
+    }
+
+    function setRating(project, rating, event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const ratings = loadRatings();
+        ratings[project] = rating;
+        saveRatings(ratings);
+        applyRatings();
+    }
+
+    function exportRatings() {
+        const ratings = loadRatings();
+        const blob = new Blob([JSON.stringify(ratings, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'ratings.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
+
+    // Inject rating dots into each card
+    document.querySelectorAll('.project-card').forEach(card => {
+        const project = card.dataset.project;
+        if (!project) return;
+        const controls = document.createElement('div');
+        controls.className = 'rating-controls';
+        ['green', 'yellow', 'red'].forEach(r => {
+            const dot = document.createElement('div');
+            dot.className = `rating-dot ${r}`;
+            dot.title = r.charAt(0).toUpperCase() + r.slice(1);
+            dot.onclick = (e) => setRating(project, r, e);
+            controls.appendChild(dot);
+        });
+        card.appendChild(controls);
+    });
+
+    // Load saved ratings on startup
+    applyRatings();
+    </script>
 </body>
 </html>
