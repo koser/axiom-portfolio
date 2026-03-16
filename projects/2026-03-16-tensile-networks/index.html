@@ -4,8 +4,52 @@
   <meta charset="UTF-8">
   <title>Tensile Networks</title>
   <style>
-    body, html { margin: 0; padding: 0; overflow: hidden; background: #fafaf8; }
+    body, html { 
+      margin: 0; 
+      padding: 0; 
+      overflow: hidden; 
+      background: #fafaf8; 
+      font-family: 'Courier New', Courier, monospace;
+    }
     canvas { display: block; }
+    
+    #ui-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(250, 250, 248, 0.85);
+      border: 1px solid #ebebe8;
+      padding: 16px;
+      border-radius: 6px;
+      color: #0d0d0d;
+      font-size: 11px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 180px;
+      z-index: 10;
+    }
+
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #0d0d0d;
+      cursor: pointer;
+    }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
@@ -27,6 +71,41 @@
 <div class="ap-body"><p>An animated field of interconnected organic filaments that bulge, constrict, and pulse like cellular membranes under tension. The piece translates the moodboard's flowing vertical line networks into a living system where curves are never static — each strand is a chain of vertices displaced by layered noise fields, creating wobbly, irregular forms that breathe and undulate. The visual logic mirrors biological systems under microscopic observation: tension, elasticity, and the constant renegotiation of space between neighboring forms.</p></div>
 </div>
 
+
+<div id="ui-panel">
+  <div class="slider-group">
+    <div class="slider-header">
+      <span>Density</span>
+      <span id="densityVal"></span>
+    </div>
+    <input type="range" id="densitySlider" min="10" max="150" value="50">
+  </div>
+  
+  <div class="slider-group">
+    <div class="slider-header">
+      <span>Speed</span>
+      <span id="speedVal"></span>
+    </div>
+    <input type="range" id="speedSlider" min="0.1" max="2.5" step="0.1" value="0.8">
+  </div>
+  
+  <div class="slider-group">
+    <div class="slider-header">
+      <span>Sway</span>
+      <span id="swayVal"></span>
+    </div>
+    <input type="range" id="swaySlider" min="0.0" max="2.0" step="0.1" value="0.5">
+  </div>
+  
+  <div class="slider-group">
+    <div class="slider-header">
+      <span>Wobble</span>
+      <span id="wobbleVal"></span>
+    </div>
+    <input type="range" id="wobbleSlider" min="0.0" max="2.0" step="0.1" value="0.4">
+  </div>
+</div>
+
 <script>
 const palette = {
   bg: '#fafaf8', 
@@ -39,22 +118,40 @@ const palette = {
 let filaments = [];
 let bgLines = [];
 
+// UI and state variables
+let currentDensity;
+let accumTime = 0;
+let ui = {};
+
 function setup() {
   createCanvas(windowWidth, windowHeight);
   noiseSeed(8765);
-  initSystem();
+  
+  // Cache DOM elements for performance
+  ui.density = document.getElementById('densitySlider');
+  ui.speed = document.getElementById('speedSlider');
+  ui.sway = document.getElementById('swaySlider');
+  ui.wobble = document.getElementById('wobbleSlider');
+  
+  ui.densityVal = document.getElementById('densityVal');
+  ui.speedVal = document.getElementById('speedVal');
+  ui.swayVal = document.getElementById('swayVal');
+  ui.wobbleVal = document.getElementById('wobbleVal');
+
+  currentDensity = parseInt(ui.density.value);
+  initSystem(currentDensity);
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  initSystem();
+  initSystem(currentDensity);
 }
 
-function initSystem() {
+function initSystem(density) {
   filaments = [];
   bgLines = [];
   
-  // Create subtle floating background curves to give the canvas texture
+  // Create subtle floating background curves
   for(let i=0; i<250; i++) {
     bgLines.push({
       x: random(width), y: random(height),
@@ -62,20 +159,17 @@ function initSystem() {
       cx2: random(-60, 60), cy2: random(-60, 60),
       x2: random(-60, 60), y2: random(-60, 60),
       rot: random(TWO_PI),
-      speed: random(0.0001, 0.0003) * (random() > 0.5 ? 1 : -1)
+      speed: random(0.00005, 0.00015) * (random() > 0.5 ? 1 : -1)
     });
   }
   
-  // Distribute paired filaments across a wider span to accommodate massive flow field displacement
-  let density = map(width, 400, 2000, 30, 100);
-  let spread = 800; // Substantial buffer to prevent edges from becoming empty
+  let spread = 800; 
   for(let i=0; i<density; i++) {
     let x = map(i, 0, density, -spread, width + spread) + random(-40, 40);
-    let z = random(0.5, 1.4); // Z-index for parallax and thickness
+    let z = random(0.5, 1.4); 
     filaments.push(new Filament(x, z));
   }
   
-  // Sort from background to foreground to ensure correct overlap
   filaments.sort((a, b) => a.z - b.z);
 }
 
@@ -85,24 +179,19 @@ class Filament {
     this.z = z;
     this.seed = random(10000);
     
-    // Calculate points extending slightly past the vertical bounds
     this.ptsCount = ceil(height / 35) + 4;
     this.spacing = height / (this.ptsCount - 4);
     
-    // Organic membrane properties
-    this.baseWidth = random(8, 35) * z;
+    this.baseWidth = random(8, 30) * z;
     this.hasVein = random() > 0.5;
     
-    // Individual soft easing curves to vary pulsing/bulging behavior
     const easeTypes = ['sine', 'cubic', 'quad', 'power'];
     this.easeType = easeTypes[floor(random(easeTypes.length))];
-    this.easePower = random(1.5, 3.5); // only used if type is 'power'
+    this.easePower = random(1.5, 3.5); 
     
-    // Threshold determining when the line separates to form a "white shaped gap"
-    this.gapThreshold = random(0.78, 0.92);
+    this.gapThreshold = random(0.8, 0.94);
   }
   
-  // Distinct softening functions for organic transitions
   ease(x, type, power) {
     x = constrain(x, 0, 1);
     switch(type) {
@@ -114,13 +203,12 @@ class Filament {
     }
   }
   
-  draw(t) {
+  draw(t, swayMult, wobbleMult) {
     let leftPts = [];
     let rightPts = [];
     let centerPts = [];
     let gapData = [];
     
-    // 2D Noise field parameters that govern the overall rhythm of the composition
     const fieldScaleX = 0.0008;
     const fieldScaleY = 0.0015;
     const timeScale = 0.00015;
@@ -128,8 +216,6 @@ class Filament {
     for(let i=0; i<this.ptsCount; i++) {
       let y = (i - 2) * this.spacing;
       
-      // Sample the shared 2D Perlin noise field based on exact spatial coordinates
-      // This creates the unified, synchronized flow across all filaments
       let nX = this.baseX * fieldScaleX;
       let nY = y * fieldScaleY;
       let nT = t * timeScale;
@@ -137,44 +223,39 @@ class Filament {
       let field1 = noise(nX, nY, nT) - 0.5;
       let field2 = noise(nX * 2.5 + 100, nY * 2.5 + 100, nT * 1.5) - 0.5;
       
-      // The horizontal curvature is deeply governed by the global fields
-      let sway = (field1 * 1200 + field2 * 300) * this.z;
+      // Significantly scaled down base sway values for subtler motion
+      let sway = (field1 * 400 + field2 * 120) * this.z * swayMult;
       
-      // Minute, individual noise to retain cellular/organic independence within the field
-      let wobble = (noise(this.seed, y * 0.004, t * 0.0003) - 0.5) * 40 * this.z;
+      // Scaled down micro wobble
+      let wobble = (noise(this.seed, y * 0.004, t * 0.0003) - 0.5) * 15 * this.z * wobbleMult;
       
       let cx = this.baseX + sway + wobble;
       
-      // Calculate individual raw bulging noise (applied individually per filament)
       let ny = y * 0.0015;
       let nt = t * 0.0003;
       let rawNoise = noise(this.seed + 500, ny * 2, nt * 1.8);
       let n = map(rawNoise, 0.2, 0.8, 0, 1, true); 
       
-      // Apply the filament's unique easing curve for thickness
       let widthEased = this.ease(n, this.easeType, this.easePower);
-      let dynamicWidth = map(widthEased, 0, 1, 2, this.baseWidth * 2.8);
+      let dynamicWidth = map(widthEased, 0, 1, 2, this.baseWidth * 2.5);
       
-      // Calculate gap appearance if threshold is exceeded
       let gapAmt = map(widthEased, this.gapThreshold, 1.0, 0, 1, true);
-      gapAmt = -(cos(PI * gapAmt) - 1) / 2; // Smooth sine ease for opening the gap
+      gapAmt = -(cos(PI * gapAmt) - 1) / 2; 
       
       let gapWidth = 0;
       if (gapAmt > 0) {
-        gapWidth = dynamicWidth * 0.6 * gapAmt; // Gap absorbs up to 60% of width
+        gapWidth = dynamicWidth * 0.55 * gapAmt; 
       }
       gapData.push(gapWidth);
       
-      // Add independent micro-wiggle to edges for organic tension
-      let leftWiggle = (noise(this.seed + 1000, ny * 4, nt * 2.5) - 0.5) * 12 * this.z;
-      let rightWiggle = (noise(this.seed + 2000, ny * 4, nt * 2.5) - 0.5) * 12 * this.z;
+      let leftWiggle = (noise(this.seed + 1000, ny * 4, nt * 2.5) - 0.5) * 8 * this.z * wobbleMult;
+      let rightWiggle = (noise(this.seed + 2000, ny * 4, nt * 2.5) - 0.5) * 8 * this.z * wobbleMult;
       
       leftPts.push({x: cx - dynamicWidth/2 + leftWiggle, y: y});
       rightPts.push({x: cx + dynamicWidth/2 + rightWiggle, y: y});
       centerPts.push({x: cx, y: y});
     }
     
-    // Group consecutive points where a gap exists
     let currentGapGroup = [];
     let gapGroups = [];
     for(let i=0; i<this.ptsCount; i++) {
@@ -187,7 +268,7 @@ class Filament {
     }
     if (currentGapGroup.length >= 3) gapGroups.push(currentGapGroup);
     
-    // 1. Fill the solid color membrane body
+    // Solid color membrane body
     let fillCol = color(palette.main);
     fillCol.setAlpha(245);
     fill(fillCol);
@@ -203,26 +284,24 @@ class Filament {
     curveVertex(rightPts[0].x, rightPts[0].y);
     endShape(CLOSE);
     
-    // 2. Draw the outlining curves defining the network strands
+    // Outlining curves
     noFill();
     stroke(palette.sec);
     strokeWeight(1.8 * this.z);
     
-    // Left edge
     beginShape();
     curveVertex(leftPts[0].x, leftPts[0].y);
     for(let pt of leftPts) curveVertex(pt.x, pt.y);
     curveVertex(leftPts[leftPts.length-1].x, leftPts[leftPts.length-1].y);
     endShape();
     
-    // Right edge
     beginShape();
     curveVertex(rightPts[0].x, rightPts[0].y);
     for(let pt of rightPts) curveVertex(pt.x, pt.y);
     curveVertex(rightPts[rightPts.length-1].x, rightPts[rightPts.length-1].y);
     endShape();
 
-    // 3. Central microscopic vein
+    // Central microscopic vein
     if (this.hasVein && this.baseWidth > 15) {
       let veinCol = color(palette.sec);
       veinCol.setAlpha(120);
@@ -235,16 +314,15 @@ class Filament {
       endShape();
     }
     
-    // 4. White shaped gaps (Tears / Cellular Vacuoles)
+    // White shaped gaps (Vacuoles)
     if (gapGroups.length > 0) {
       for (let indices of gapGroups) {
-        fill(palette.bg); // Match background canvas color to simulate a hole
-        stroke(palette.sec); // Very faint border for organic depth
+        fill(palette.bg); 
+        stroke(palette.sec); 
         strokeWeight(0.8 * this.z);
         
         beginShape();
         let firstIdx = indices[0];
-        // Duplicate vertices to enforce sharp pinching at the extremes of the gap
         curveVertex(centerPts[firstIdx].x, centerPts[firstIdx].y);
         curveVertex(centerPts[firstIdx].x, centerPts[firstIdx].y);
         
@@ -268,7 +346,7 @@ class Filament {
       }
     }
     
-    // 5. Accent highlight on moving segments
+    // Accent highlight on moving segments
     if (this.z > 0.9 && noise(this.seed) > 0.4) {
       let phase = (t * 0.00015 + this.seed) % 1.0;
       let startIdx = floor(phase * (this.ptsCount - 6)) + 1;
@@ -289,8 +367,27 @@ class Filament {
 }
 
 function draw() {
+  // Update UI text displays
+  ui.densityVal.innerText = ui.density.value;
+  ui.speedVal.innerText = parseFloat(ui.speed.value).toFixed(1) + 'x';
+  ui.swayVal.innerText = parseFloat(ui.sway.value).toFixed(1) + 'x';
+  ui.wobbleVal.innerText = parseFloat(ui.wobble.value).toFixed(1) + 'x';
+
+  // Check if density changed, requiring a rebuild
+  let newDensity = parseInt(ui.density.value);
+  if (newDensity !== currentDensity) {
+    currentDensity = newDensity;
+    initSystem(currentDensity);
+  }
+
+  // Accumulate time smoothly based on speed multiplier to prevent jitter
+  let speedMult = parseFloat(ui.speed.value);
+  accumTime += deltaTime * speedMult;
+  
+  let swayMult = parseFloat(ui.sway.value);
+  let wobbleMult = parseFloat(ui.wobble.value);
+
   background(palette.bg);
-  let t = millis();
   
   // Render ambient background field
   stroke(palette.bgTex);
@@ -299,14 +396,14 @@ function draw() {
   for(let l of bgLines) {
     push();
     translate(l.x, l.y);
-    rotate(l.rot + t * l.speed);
+    rotate(l.rot + accumTime * l.speed);
     bezier(0, 0, l.cx1, l.cy1, l.cx2, l.cy2, l.x2, l.y2);
     pop();
   }
   
-  // Render organic pairings governed by the shared noise field
+  // Render organic pairings governed by the shared noise field and UI modifiers
   for(let f of filaments) {
-    f.draw(t);
+    f.draw(accumTime, swayMult, wobbleMult);
   }
 }
 </script>
