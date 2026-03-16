@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serpent Grid Orbits</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #f8f6f2;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+    <script>
+        let quads = [];
+        let logicalSize = 984; // 8 margin + 480 + 8 gutter + 480 + 8 margin
+        let scaleF = 1;
+        let ox = 0, oy = 0;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            noiseSeed(12345);
+            initLayout();
+        }
+
+        function initLayout() {
+            quads = [];
+            // Positions based on prompt: (8,8), (496,8), (8,496), (496,496)
+            quads.push(new Quadrant(8, 8, 0));
+            quads.push(new Quadrant(496, 8, 1));
+            quads.push(new Quadrant(8, 496, 2));
+            quads.push(new Quadrant(496, 496, 3));
+            calcScale();
+        }
+
+        function calcScale() {
+            scaleF = min(windowWidth / logicalSize, windowHeight / logicalSize) * 0.95;
+            ox = (windowWidth - logicalSize * scaleF) / 2;
+            oy = (windowHeight - logicalSize * scaleF) / 2;
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            calcScale();
+        }
+
+        function draw() {
+            background('#f8f6f2');
+            
+            translate(ox, oy);
+            scale(scaleF);
+            
+            let t = millis();
+            let globalSync = (t % 8000 < 600) ? sin(map(t % 8000, 0, 600, 0, PI)) * 3 : 0;
+
+            for (let q of quads) {
+                q.updateAndDraw(t, globalSync);
+            }
+        }
+
+        class Quadrant {
+            constructor(x, y, idx) {
+                this.x = x;
+                this.y = y;
+                this.idx = idx;
+                this.circles = [];
+                
+                // 5x5 grid, 85px spacing, 480x480 container
+                let span = 4 * 85;
+                let startX = x + (480 - span) / 2;
+                let startY = y + (480 - span) / 2;
+                
+                for (let i = 0; i < 5; i++) {
+                    for (let j = 0; j < 5; j++) {
+                        this.circles.push(new Circle(startX + j * 85, startY + i * 85, idx));
+                    }
+                }
+                
+                this.serpent = new Serpent(x + 240, y + 240, idx, this.circles);
+            }
+
+            updateAndDraw(t, globalSync) {
+                // Circle-to-Circle Repulsion
+                for (let i = 0; i < this.circles.length; i++) {
+                    for (let j = i + 1; j < this.circles.length; j++) {
+                        let c1 = this.circles[i];
+                        let c2 = this.circles[j];
+                        let d = c1.pos.dist(c2.pos);
+                        if (d > 0 && d < 120) {
+                            let force = 0.4 * (120 - d) / 120;
+                            let dir = p5.Vector.sub(c1.pos, c2.pos).normalize().mult(force);
+                            c1.pos.add(dir);
+                            c2.pos.sub(dir);
+                        }
+                    }
+                }
+
+                let renderData = [];
+                for (let c of this.circles) {
+                    renderData.push({ c: c, data: c.update(t) });
+                }
+
+                this.serpent.update(t);
+
+                // Draw circles (bottom layer)
+                for (let item of renderData) {
+                    item.c.draw(item.data, globalSync);
+                }
+
+                // Draw serpent (top layer)
+                this.serpent.draw();
+            }
+        }
+
+        class Circle {
+            constructor(x, y, qIdx) {
+                this.base = createVector(x, y);
+                this.pos = createVector(x, y);
+                this.qIdx = qIdx;
+                this.r = 18;
+                this.wrappedAt = 0;
+            }
+
+            update(t) {
+                // Perlin drift
+                let nx = noise(this.base.x * 0.008 + t * 0.0003, this.base.y * 0.008 + this.qIdx * 100);
+                let ny = noise(this.base.x * 0.008 + this.qIdx * 100, this.base.y * 0.008 + t * 0.0003);
+                
+                // Drift accelerates in phase 2 (after 45s), approximated by increasing amplitude based on t
+                let driftAmp = map(constrain(t, 0, 110000), 0, 110000, 4, 8);
+                this.pos.x = lerp(this.pos.x, this.base.x + (nx - 0.5) * driftAmp * 2, 0.1);
+                this.pos.y = lerp(this.pos.y, this.base.y + (ny - 0.5) * driftAmp * 2, 0.1);
+
+                // Bloom/Deflate State
+                let sc = 1.0;
+                let col = color('#c9c9c9');
+                let innerAlpha = 0;
+
+                if (this.wrappedAt > 0) {
+                    let elapsed = t - this.wrappedAt;
+                    if (elapsed < 600) { // Bloom
+                        sc = map(elapsed, 0, 600, 1.0, 1.4);
+                        col = color('#e5e5e5');
+                        innerAlpha = map(elapsed, 0, 600, 0, 255);
+                    } else if (elapsed < 3000) { // Deflate
+                        let prg = map(elapsed, 600, 3000, 0, 1);
+                        sc = map(pow(prg, 2), 0, 1, 1.4, 1.0); // easeInQuad
+                        col = lerpColor(color('#e5e5e5'), color('#c9c9c9'), prg);
+                        innerAlpha = map(prg, 0, 1, 255, 0);
+                    } else {
+                        this.wrappedAt = 0; // Unwrapped, available again
+                    }
+                }
+                return { sc, col, innerAlpha };
+            }
+
+            draw(data, globalSync) {
+                push();
+                translate(this.pos.x, this.pos.y);
+                
+                // Local pulse + Global pulse
+                let localPulse = sin(millis() * 0.003 + this.base.x * 0.01 + this.base.y * 0.02) * 2;
+                let currentR = (this.r + localPulse + globalSync) * data.sc;
+
+                noFill();
+                strokeWeight(2.5);
+                stroke(data.col);
+                ellipse(0, 0, currentR * 2);
+
+                if (data.innerAlpha > 0) {
+                    fill(122, 122, 122, data.innerAlpha); // #7a7a7a
+                    noStroke();
+                    ellipse(0, 0, currentR * 1.5);
+                }
+                pop();
+            }
+        }
+
+        class Serpent {
+            constructor(x, y, qIdx, circles) {
+                this.pts = [];
+                for (let i = 0; i < 50; i++) this.pts.push(createVector(x, y));
+                this.qIdx = qIdx;
+                this.circles = circles;
+                this.head = createVector(x, y);
+                this.vel = p5.Vector.random2D().mult(2);
+                this.target = null;
+                this.maxLen = 55;
+            }
+
+            update(t) {
+                let speedMod = map(sin(t * 0.0003 * PI * 2), -1, 1, 1.4, 2.8);
+                
+                // Check wrap condition
+                if (this.target) {
+                    let d = this.head.dist(this.target.pos);
+                    if (d < 12 && this.target.wrappedAt === 0) {
+                        this.target.wrappedAt = t;
+                        this.target = null;
+                    }
+                }
+
+                // Acquire target
+                if (!this.target || this.target.wrappedAt > 0) {
+                    this.target = this.findTarget();
+                }
+
+                // Seek target
+                if (this.target) {
+                    let desired = p5.Vector.sub(this.target.pos, this.head);
+                    let d = desired.mag();
+                    
+                    // Field attraction strengthening
+                    let attractionStr = map(d, 0, 50, 2.5, 1.0, true);
+
+                    // Style-specific movement vectors
+                    if (this.qIdx === 1) { // Zigzag
+                        if (abs(desired.x) > 20) desired.y *= 0.2; 
+                    } else if (this.qIdx === 3) { // Hexagon
+                        let a = desired.heading();
+                        a = round(a / (PI / 3)) * (PI / 3);
+                        desired = p5.Vector.fromAngle(a).mult(d);
+                    } else if (this.qIdx === 0) { // Spiral
+                        // Add perpendicular tangent for spiral effect when far
+                        if (d > 30) {
+                            let perp = createVector(-desired.y, desired.x).normalize().mult(d * 0.5);
+                            desired.add(perp);
+                        }
+                    }
+
+                    // Turbulence
+                    desired.rotate(radians((noise(t * 0.001, this.qIdx) - 0.5) * 24));
+                    desired.normalize().mult(speedMod * attractionStr);
+                    
+                    let steer = p5.Vector.sub(desired, this.vel);
+                    // Flow serpent (Q2) has low steering limit for smooth S-curves
+                    steer.limit(this.qIdx === 2 ? 0.08 : 0.25); 
+                    this.vel.add(steer);
+                }
+
+                this.vel.normalize().mult(speedMod);
+                this.head.add(this.vel);
+                
+                this.pts.push(this.head.copy());
+                while (this.pts.length > this.maxLen) {
+                    this.pts.shift();
+                }
+            }
+
+            findTarget() {
+                let best = null;
+                let record = Infinity;
+                
+                for (let c of this.circles) {
+                    if (c.wrappedAt === 0) {
+                        let d = this.head.dist(c.pos);
+                        
+                        // Pattern-specific target preferences
+                        if (this.qIdx === 1) { // Zigzag prioritizes horizontal proximity
+                            d += abs(c.pos.y - this.head.y) * 2;
+                        } else if (this.qIdx === 2) { // Flow prefers points in forward path
+                            let toC = p5.Vector.sub(c.pos, this.head).normalize();
+                            let alignment = this.vel.copy().normalize().dot(toC);
+                            d -= alignment * 40; 
+                        }
+                        
+                        if (d < record) {
+                            record = d;
+                            best = c;
+                        }
+                    }
+                }
+                
+                // Fallback: if all wrapped, circle the center of the quadrant temporarily
+                if (!best) {
+                    let cx = this.circles[12].base.x;
+                    let cy = this.circles[12].base.y;
+                    return { pos: createVector(cx + sin(millis()*0.001)*50, cy + cos(millis()*0.001)*50), wrappedAt: 0 };
+                }
+                
+                return best;
+            }
+
+            draw() {
+                // Spline tensions: Top-left: 0.6, Top-right: 0.3, Bottom-left: 0.8, Bottom-right: 0.4
+                let tensions = [0.6, 0.3, 0.8, 0.4];
+                curveTightness(tensions[this.qIdx]);
+
+                // Shadow pass
+                noFill();
+                strokeWeight(3);
+                stroke(26, 26, 26, 38); // #1a1a1a with 15% opacity
+                beginShape();
+                curveVertex(this.pts[0].x + 2, this.pts[0].y + 2);
+                for (let p of this.pts) {
+                    curveVertex(p.x + 2, p.y + 2);
+                }
+                curveVertex(this.pts[this.pts.length - 1].x + 2, this.pts[this.pts.length - 1].y + 2);
+                endShape();
+
+                // Main line
+                stroke('#0d0d0d');
+                beginShape();
+                curveVertex(this.pts[0].x, this.pts[0].y);
+                for (let p of this.pts) {
+                    curveVertex(p.x, p.y);
+                }
+                curveVertex(this.pts[this.pts.length - 1].x, this.pts[this.pts.length - 1].y);
+                endShape();
+            }
+        }
+    </script>
+</body>
+</html>
