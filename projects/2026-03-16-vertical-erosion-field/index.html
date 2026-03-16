@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vertical Erosion Field</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0d0d0d;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG22</span> <span class="ap-ttl">Vertical Erosion Field</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>A dense vertical stripe structure undergoes continuous erosion and reformation through hundreds of small geometric fragments that peel away from rigid bands and migrate across the canvas. The piece captures the moodboard's stark black-and-white contrast, sharp vertical rhythm, and the organic decay visible in the reference — transforming architectural rigidity into dynamic disintegration and rebirth.</p></div>
+</div>
+
+<script>
+    /**
+     * Vertical Erosion Field
+     * A p5.js generative artwork.
+     */
+
+    const PALETTE = {
+        bg: '#0d0d0d',
+        pri: '#ffffff',
+        sec: '#e8e8e8',
+        acc: '#1a1a1a'
+    };
+
+    let bands = [];
+    let fragments = [];
+    let t0 = 0;
+    let lastSpawnTime = 0;
+    let lastSweepTime = 0;
+    let lastMouseTime = 0;
+    let mouseXRatio = 0.5;
+    let mouseYRatio = 0.5;
+    
+    const MAX_FRAGS = 450;
+    let cBg, cPri, cSec, cAcc;
+
+    function setup() {
+        createCanvas(windowWidth, windowHeight);
+        frameRate(60);
+        
+        cBg = color(PALETTE.bg);
+        cPri = color(PALETTE.pri);
+        cSec = color(PALETTE.sec);
+        cAcc = color(PALETTE.acc);
+        
+        initBands();
+        t0 = millis();
+        lastMouseTime = millis();
+        noStroke();
+    }
+
+    function initBands() {
+        bands = [];
+        let numBands = floor(random(18, 25));
+        let spacing = width / numBands;
+        for (let i = 0; i < numBands; i++) {
+            let x = i * spacing + spacing / 2;
+            let w = random(40, 80);
+            bands.push(new VerticalBand(x, w, i));
+        }
+    }
+
+    function draw() {
+        let t = millis();
+        background(cBg);
+
+        // Determine Phase (1: 0-15s, 2: 15-45s, 3: 45s+)
+        let phaseT = (t - t0) % 90000; // Loop every 90s for continuity
+        let phase = 1;
+        if (phaseT > 15000 && phaseT <= 45000) phase = 2;
+        else if (phaseT > 45000) phase = 3;
+
+        // Autonomous mode fallback
+        let isAuto = (t - lastMouseTime > 5000);
+        if (isAuto) {
+            mouseXRatio = map(noise(t * 0.0005, 1000), 0, 1, 0.2, 0.8);
+            mouseYRatio = map(noise(t * 0.0005, 2000), 0, 1, 0.2, 0.8);
+        }
+
+        // Noise Amplitude calculation
+        let noiseAmp = phase === 1 ? map(sin(t * 0.001), -1, 1, 2, 8) : (phase === 2 ? 10 : 7);
+        if (t - lastMouseTime > 3000 && !isAuto) {
+            // Gradually increase noise when still
+            let stillness = min((t - lastMouseTime - 3000) / 2000, 1);
+            noiseAmp = lerp(noiseAmp, 18, stillness);
+        }
+
+        // Gap oscillation (8s period)
+        let gapOsc = sin(t * TWO_PI / 8000) * 15;
+
+        // Draw Shadow Accents
+        fill(cAcc);
+        for (let b of bands) {
+            rect(b.x - b.w/2 + 5, 0, b.w, height);
+        }
+
+        // Draw Bands
+        fill(cPri);
+        for (let b of bands) {
+            b.updateAndDraw(t, phase, noiseAmp, gapOsc);
+        }
+
+        // Handle Spawning
+        let spawnInterval = phase === 1 ? 1200 : (phase === 2 ? 800 : 1200);
+        if (t - lastSpawnTime > spawnInterval) {
+            let baseCount = map(mouseYRatio, 0, 1, 5, 60);
+            let count = phase === 2 ? baseCount * 1.5 : (phase === 3 ? 15 : baseCount);
+            
+            for (let i = 0; i < count; i++) {
+                spawnFragment(t, phase, false);
+            }
+            lastSpawnTime = t;
+        }
+
+        // Phase 3 Sweep
+        if (phase === 3 && t - lastSweepTime > 12000) {
+            let sweepCount = random(80, 120);
+            for (let i = 0; i < sweepCount; i++) {
+                spawnFragment(t, 3, true);
+            }
+            lastSweepTime = t;
+        }
+
+        // Update and Draw Fragments
+        for (let i = fragments.length - 1; i >= 0; i--) {
+            let f = fragments[i];
+            f.update(t);
+            f.draw(t, isAuto);
+            
+            if (t - f.birthTime > f.lifeSpan) {
+                fragments.splice(i, 1);
+            }
+        }
+
+        // Cap array to prevent performance death spiral
+        while (fragments.length > MAX_FRAGS) {
+            fragments.shift();
+        }
+
+        drawInteractionIndicator(t);
+    }
+
+    function spawnFragment(t, phase, isSweep) {
+        let x, y, vx, vy, type;
+        let life = random(3000, 7500); // 180 to 450 frames approx
+        
+        if (isSweep) {
+            let isLeft = random() > 0.5;
+            x = isLeft ? -20 : width + 20;
+            y = height / 2 + (noise(t * 0.01, fragments.length) - 0.5) * 100;
+            vx = (isLeft ? 1 : -1) * 2.2;
+            vy = random(-0.2, 0.2);
+            type = 'edge';
+        } else if (phase === 3 && random() < 0.8) {
+            // Edge spawn (80% in Phase 3)
+            let isLeft = random() < 0.5;
+            x = isLeft ? -10 : width + 10;
+            y = random(height);
+            
+            // Find nearest band to target
+            let nearest = bands[0];
+            let minDist = width * 2;
+            for (let b of bands) {
+                let d = abs(b.x - x);
+                if (d < minDist) { minDist = d; nearest = b; }
+            }
+            
+            let angle = atan2(0, nearest.x - x); // Horizontal targeting
+            let speed = random(2.0, 3.5);
+            vx = cos(angle) * speed;
+            vy = random(-0.2, 0.2);
+            type = 'edge';
+        } else {
+            // Band spawn
+            let b = random(bands);
+            if (!b) return;
+            x = b.x + random(-b.w / 2, b.w / 2);
+            y = random(height);
+            let flowRight = random() > mouseXRatio;
+            vx = (flowRight ? 1 : -1) * random(0.8, 2.5);
+            vy = random(-0.2, 0.2);
+            type = 'band';
+            if (phase === 1) life = random(2000, 4000);
+        }
+        
+        fragments.push(new ErosionFragment(x, y, vx, vy, type, life, t));
+    }
+
+    function mouseMoved() {
+        mouseXRatio = constrain(mouseX / width, 0, 1);
+        mouseYRatio = constrain(mouseY / height, 0, 1);
+        lastMouseTime = millis();
+    }
+
+    function mousePressed() {
+        let count = random(40, 60);
+        let t = millis();
+        for (let i = 0; i < count; i++) {
+            let angle = random(TWO_PI);
+            let speed = random(3.5, 7.0);
+            let f = new ErosionFragment(mouseX, mouseY, cos(angle)*speed, sin(angle)*speed, 'click', 4000, t);
+            fragments.push(f);
+        }
+        lastMouseTime = t;
+    }
+
+    function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+        initBands();
+        fragments = [];
+        t0 = millis();
+    }
+
+    function drawInteractionIndicator(t) {
+        if (t > 4000) return;
+        let alpha = map(t, 0, 4000, 180, 0);
+        push();
+        noStroke();
+        fill(255, 255, 255, alpha);
+        translate(width / 2, 20);
+        // Stylized mouse icon
+        rectMode(CENTER);
+        rect(0, 0, 14, 22, 7);
+        fill(0, 0, 0, alpha);
+        rect(0, -5, 2, 6, 1);
+        pop();
+    }
+
+    // --- CLASSES ---
+
+    class VerticalBand {
+        constructor(x, w, id) {
+            this.baseX = x;
+            this.x = x;
+            this.w = w;
+            this.id = id;
+            this.pulsePhase = random(TWO_PI);
+            this.nSeed = random(1000);
+        }
+
+        updateAndDraw(t, phase, amp, gapOsc) {
+            // Drift logic
+            if (phase === 2) {
+                if (this.baseX < width / 3) this.x -= 0.15;
+                else if (this.baseX > width * 0.66) this.x += 0.1;
+                
+                // Wrap around
+                if (this.x < -100) this.x = width + 100;
+                if (this.x > width + 100) this.x = -100;
+            } else if (phase === 3) {
+                // Slowly return to base
+                this.x = lerp(this.x, this.baseX, 0.01);
+            }
+
+            // Pulse in phase 3
+            let scaleW = 1.0;
+            if (phase === 3) {
+                scaleW = 1.0 + sin((t * 0.001 * TWO_PI / 4) + this.id * 0.3) * 0.04;
+            }
+
+            let effW = (this.w + (phase > 1 ? gapOsc : 0)) * scaleW;
+            let halfW = effW / 2;
+            let step = 45; // Resolution of edges
+
+            beginShape();
+            // Left edge down
+            for (let y = -20; y <= height + 20; y += step) {
+                let nx = (noise(this.nSeed, y * 0.02, t * 0.001) - 0.5) * amp * 2;
+                vertex(this.x - halfW + nx, y);
+            }
+            // Right edge up
+            for (let y = height + 20; y >= -20; y -= step) {
+                let nx = (noise(this.nSeed + 500, y * 0.02, t * 0.001) - 0.5) * amp * 2;
+                vertex(this.x + halfW + nx, y);
+            }
+            endShape(CLOSE);
+        }
+    }
+
+    class ErosionFragment {
+        constructor(x, y, vx, vy, type, life, t) {
+            this.x = x;
+            this.y = y;
+            this.vx = vx;
+            this.vy = vy;
+            this.type = type;
+            this.lifeSpan = life;
+            this.birthTime = t;
+            this.w = random(4, 20);
+            this.h = random(8, 24);
+            if (type === 'click') { this.w *= 1.5; this.h *= 1.5; }
+            this.rot = random(TWO_PI);
+            this.rotV = random(0.02, 0.06) * (random() > 0.5 ? 1 : -1);
+            this.trail = [];
+            this.nSeed = random(1000);
+        }
+
+        update(t) {
+            // Drift perturbation
+            let nt = t * 0.001;
+            this.vx += (noise(this.nSeed, nt) - 0.5) * 0.15;
+            this.vy += (noise(this.nSeed + 10, nt) - 0.5) * 0.15;
+
+            // Apply velocity
+            this.x += this.vx;
+            this.y += this.vy;
+            this.rot += this.rotV;
+
+            // Manage Trail
+            this.trail.unshift({x: this.x, y: this.y, r: this.rot});
+            if (this.trail.length > 5) this.trail.pop();
+        }
+
+        draw(t, isAuto) {
+            let age = t - this.birthTime;
+            let lifeRatio = constrain(age / this.lifeSpan, 0, 1);
+            
+            let alphaMult = 1.0;
+            let scl = 1.0;
+
+            // Lifecycle transformations
+            if (lifeRatio < 0.1) {
+                // Spawn phase
+                let norm = lifeRatio / 0.1;
+                alphaMult = norm; // Linear ramp
+                scl = lerp(0.3, 1.0, 1 - pow(1 - norm, 3)); // easeOutCubic
+            } else if (lifeRatio > 0.9) {
+                // Fade phase
+                let norm = (lifeRatio - 0.9) / 0.1;
+                alphaMult = 1.0 - pow(norm, 2); // Exponential decay
+                scl = lerp(1.0, 0.5, norm);
+                this.vx *= 0.92; // Friction
+                this.vy *= 0.92;
+                this.rotV *= 1.05; // Spin up
+            }
+
+            if (isAuto) alphaMult *= 0.8;
+            let maxAlpha = this.type === 'click' ? 240 : 200;
+            let baseAlpha = maxAlpha * alphaMult;
+            
+            let col = this.type === 'click' ? cPri : cSec;
+
+            // Draw Trails
+            for (let i = this.trail.length - 1; i >= 1; i--) {
+                let pt = this.trail[i];
+                let trailAlpha = baseAlpha * (1 - i/this.trail.length) * 0.7;
+                
+                push();
+                translate(pt.x, pt.y);
+                rotate(pt.r);
+                scale(scl);
+                fill(red(col), green(col), blue(col), trailAlpha);
+                // Custom beveled rect
+                beginShape();
+                vertex(-this.w/2, -this.h/2 + 2);
+                vertex(-this.w/2 + 2, -this.h/2);
+                vertex(this.w/2, -this.h/2);
+                vertex(this.w/2, this.h/2);
+                vertex(-this.w/2, this.h/2);
+                endShape(CLOSE);
+                pop();
+            }
+
+            // Draw Main Fragment
+            push();
+            translate(this.x, this.y);
+            rotate(this.rot);
+            scale(scl);
+            fill(red(col), green(col), blue(col), baseAlpha);
+            beginShape();
+            vertex(-this.w/2, -this.h/2 + 3);
+            vertex(-this.w/2 + 3, -this.h/2);
+            vertex(this.w/2, -this.h/2);
+            vertex(this.w/2, this.h/2 - 3);
+            vertex(this.w/2 - 3, this.h/2);
+            vertex(-this.w/2, this.h/2);
+            endShape(CLOSE);
+            pop();
+        }
+    }
+</script>
+</body>
+</html>
