@@ -310,56 +310,77 @@
         </a>
     </div>
     <script>
-    // ─── Animated Thumbnail Hover ───────────────────────────────
+    // ─── Animated Thumbnail Hover + Mobile Focus ────────────────
     const preloaded = {};
+
+    function startAnimation(thumb) {
+        if (thumb._animating) return;
+        thumb._animating = true;
+        const numFrames = parseInt(thumb.dataset.frames);
+        const folder = thumb.dataset.folder;
+        const imgA = thumb.querySelector('.thumb-a');
+        const imgB = thumb.querySelector('.thumb-b');
+
+        // Preload frames on first activation
+        if (!preloaded[folder]) {
+            preloaded[folder] = [];
+            for (let i = 0; i < numFrames; i++) {
+                const img = new Image();
+                img.src = folder + '/frame-' + i + '.png';
+                preloaded[folder].push(img);
+            }
+        }
+
+        let frameIndex = 0;
+        let activeImg = imgA;
+        imgA.src = folder + '/frame-0.png';
+        imgA.classList.add('visible');
+
+        thumb._interval = setInterval(() => {
+            frameIndex = (frameIndex + 1) % numFrames;
+            const incoming = (activeImg === imgA) ? imgB : imgA;
+            incoming.src = folder + '/frame-' + frameIndex + '.png';
+            incoming.classList.add('visible');
+            activeImg.classList.remove('visible');
+            activeImg = incoming;
+        }, 900);
+    }
+
+    function stopAnimation(thumb) {
+        if (!thumb._animating) return;
+        thumb._animating = false;
+        if (thumb._interval) clearInterval(thumb._interval);
+        thumb._interval = null;
+        thumb.querySelector('.thumb-a').classList.remove('visible');
+        thumb.querySelector('.thumb-b').classList.remove('visible');
+    }
 
     document.querySelectorAll('.card-thumbnail[data-frames]').forEach(thumb => {
         const numFrames = parseInt(thumb.dataset.frames);
-        const folder = thumb.dataset.folder;
-        if (!numFrames || numFrames < 2 || !folder) return;
+        if (!numFrames || numFrames < 2 || !thumb.dataset.folder) return;
 
-        const imgA = thumb.querySelector('.thumb-a');
-        const imgB = thumb.querySelector('.thumb-b');
-        let frameIndex = 0;
-        let interval = null;
-        let activeImg = imgA;
-
-        thumb.closest('.project-card').addEventListener('mouseenter', () => {
-            // Preload frames on first hover
-            if (!preloaded[folder]) {
-                preloaded[folder] = [];
-                for (let i = 0; i < numFrames; i++) {
-                    const img = new Image();
-                    img.src = folder + '/frame-' + i + '.png';
-                    preloaded[folder].push(img);
-                }
-            }
-
-            frameIndex = 0;
-            // Show first frame immediately
-            imgA.src = folder + '/frame-0.png';
-            imgA.classList.add('visible');
-            activeImg = imgA;
-
-            interval = setInterval(() => {
-                frameIndex = (frameIndex + 1) % numFrames;
-                const nextSrc = folder + '/frame-' + frameIndex + '.png';
-                // Alternate between A and B for smooth crossfade
-                const incoming = (activeImg === imgA) ? imgB : imgA;
-                incoming.src = nextSrc;
-                incoming.classList.add('visible');
-                activeImg.classList.remove('visible');
-                activeImg = incoming;
-            }, 900);
-        });
-
-        thumb.closest('.project-card').addEventListener('mouseleave', () => {
-            if (interval) clearInterval(interval);
-            interval = null;
-            imgA.classList.remove('visible');
-            imgB.classList.remove('visible');
-        });
+        // Desktop: mouseenter/mouseleave
+        const card = thumb.closest('.project-card');
+        card.addEventListener('mouseenter', () => startAnimation(thumb));
+        card.addEventListener('mouseleave', () => stopAnimation(thumb));
     });
+
+    // Mobile: IntersectionObserver activates the most centered card
+    if ('IntersectionObserver' in window) {
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                const thumb = entry.target.querySelector('.card-thumbnail[data-frames]');
+                if (!thumb) return;
+                if (entry.isIntersecting) {
+                    startAnimation(thumb);
+                } else {
+                    stopAnimation(thumb);
+                }
+            });
+        }, { root: document.querySelector('.projects-grid'), threshold: 0.6 });
+
+        document.querySelectorAll('.project-card').forEach(card => observer.observe(card));
+    }
     </script>
 </body>
 </html>
