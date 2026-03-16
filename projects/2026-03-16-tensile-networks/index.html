@@ -91,12 +91,34 @@ class Filament {
     // Organic membrane properties
     this.baseWidth = random(8, 35) * z;
     this.hasVein = random() > 0.5;
+    
+    // Assign a unique, soft easing curve to each line to vary its pulsing behavior
+    const easeTypes = ['sine', 'cubic', 'quad', 'power'];
+    this.easeType = easeTypes[floor(random(easeTypes.length))];
+    this.easePower = random(1.5, 3.5); // only used if type is 'power'
+    
+    // Threshold determining when the line separates enough to form a "white shaped gap"
+    // Tuned to ensure it hits a few times but not constantly
+    this.gapThreshold = random(0.78, 0.92);
+  }
+  
+  // Distinct softening functions for organic transitions
+  ease(x, type, power) {
+    x = constrain(x, 0, 1);
+    switch(type) {
+      case 'sine': return -(cos(PI * x) - 1) / 2;
+      case 'cubic': return x < 0.5 ? 4 * x * x * x : 1 - pow(-2 * x + 2, 3) / 2;
+      case 'quad': return x < 0.5 ? 2 * x * x : 1 - pow(-2 * x + 2, 2) / 2;
+      case 'power': return pow(x, power);
+      default: return x;
+    }
   }
   
   draw(t) {
     let leftPts = [];
     let rightPts = [];
     let centerPts = [];
+    let gapData = [];
     
     for(let i=0; i<this.ptsCount; i++) {
       let y = (i - 2) * this.spacing;
@@ -111,11 +133,23 @@ class Filament {
       
       let cx = this.baseX + sway + wobble;
       
-      // Dynamic width calculation creates the bulging/constricting membrane feel
-      let widthNoise = noise(this.seed + 500, ny * 2, nt * 1.8);
-      // Ease the noise for sharper constrictions and smoother bulges
-      let widthEased = pow(widthNoise, 1.8);
+      // Calculate raw bulging noise and stretch the domain to ensure we occasionally hit peaks
+      let rawNoise = noise(this.seed + 500, ny * 2, nt * 1.8);
+      let n = map(rawNoise, 0.2, 0.8, 0, 1, true); 
+      
+      // Apply the filament's unique easing curve
+      let widthEased = this.ease(n, this.easeType, this.easePower);
       let dynamicWidth = map(widthEased, 0, 1, 2, this.baseWidth * 2.8);
+      
+      // Calculate gap appearance if threshold is exceeded
+      let gapAmt = map(widthEased, this.gapThreshold, 1.0, 0, 1, true);
+      gapAmt = -(cos(PI * gapAmt) - 1) / 2; // Smooth sine ease for opening the gap
+      
+      let gapWidth = 0;
+      if (gapAmt > 0) {
+        gapWidth = dynamicWidth * 0.6 * gapAmt; // Gap absorbs up to 60% of width
+      }
+      gapData.push(gapWidth);
       
       // Add independent micro-wiggle to edges for organic tension
       let leftWiggle = (noise(this.seed + 1000, ny * 4, nt * 2.5) - 0.5) * 12 * this.z;
@@ -126,18 +160,30 @@ class Filament {
       centerPts.push({x: cx, y: y});
     }
     
-    // 1. Fill the space between the pairings with solid color (membrane body)
+    // Group consecutive points where a gap exists
+    let currentGapGroup = [];
+    let gapGroups = [];
+    for(let i=0; i<this.ptsCount; i++) {
+      if (gapData[i] > 0) {
+        currentGapGroup.push(i);
+      } else {
+        if (currentGapGroup.length >= 3) gapGroups.push(currentGapGroup);
+        currentGapGroup = [];
+      }
+    }
+    if (currentGapGroup.length >= 3) gapGroups.push(currentGapGroup);
+    
+    // 1. Fill the solid color membrane body
     let fillCol = color(palette.main);
-    fillCol.setAlpha(245); // Very slight transparency helps depth when layering
+    fillCol.setAlpha(245);
     fill(fillCol);
     noStroke();
     
     beginShape();
-    // Anchor left side
     curveVertex(leftPts[0].x, leftPts[0].y);
     for(let pt of leftPts) curveVertex(pt.x, pt.y);
     curveVertex(leftPts[leftPts.length-1].x, leftPts[leftPts.length-1].y);
-    // Anchor right side in reverse
+    
     curveVertex(rightPts[rightPts.length-1].x, rightPts[rightPts.length-1].y);
     for(let i=rightPts.length-1; i>=0; i--) curveVertex(rightPts[i].x, rightPts[i].y);
     curveVertex(rightPts[0].x, rightPts[0].y);
@@ -148,21 +194,21 @@ class Filament {
     stroke(palette.sec);
     strokeWeight(1.8 * this.z);
     
-    // Left edge strand
+    // Left edge
     beginShape();
     curveVertex(leftPts[0].x, leftPts[0].y);
     for(let pt of leftPts) curveVertex(pt.x, pt.y);
     curveVertex(leftPts[leftPts.length-1].x, leftPts[leftPts.length-1].y);
     endShape();
     
-    // Right edge strand
+    // Right edge
     beginShape();
     curveVertex(rightPts[0].x, rightPts[0].y);
     for(let pt of rightPts) curveVertex(pt.x, pt.y);
     curveVertex(rightPts[rightPts.length-1].x, rightPts[rightPts.length-1].y);
     endShape();
 
-    // 3. Central microscopic vein for added tension detail
+    // 3. Central microscopic vein
     if (this.hasVein && this.baseWidth > 15) {
       let veinCol = color(palette.sec);
       veinCol.setAlpha(120);
@@ -175,12 +221,46 @@ class Filament {
       endShape();
     }
     
-    // 4. Accent highlight on moving segments
+    // 4. White shaped gaps (Tears / Cellular Vacuoles)
+    if (gapGroups.length > 0) {
+      for (let indices of gapGroups) {
+        fill(palette.bg); // Match background canvas color to simulate a hole
+        stroke(palette.sec); // Very faint border for organic depth
+        strokeWeight(0.8 * this.z);
+        
+        beginShape();
+        let firstIdx = indices[0];
+        // Duplicate vertices to enforce sharp pinching at the extremes of the gap
+        curveVertex(centerPts[firstIdx].x, centerPts[firstIdx].y);
+        curveVertex(centerPts[firstIdx].x, centerPts[firstIdx].y);
+        
+        for(let i=0; i<indices.length; i++) {
+          let idx = indices[i];
+          curveVertex(centerPts[idx].x - gapData[idx]/2, centerPts[idx].y);
+        }
+        
+        let lastIdx = indices[indices.length-1];
+        curveVertex(centerPts[lastIdx].x, centerPts[lastIdx].y);
+        curveVertex(centerPts[lastIdx].x, centerPts[lastIdx].y);
+        
+        for(let i=indices.length-1; i>=0; i--) {
+          let idx = indices[i];
+          curveVertex(centerPts[idx].x + gapData[idx]/2, centerPts[idx].y);
+        }
+        
+        curveVertex(centerPts[firstIdx].x, centerPts[firstIdx].y);
+        curveVertex(centerPts[firstIdx].x, centerPts[firstIdx].y);
+        endShape(CLOSE);
+      }
+    }
+    
+    // 5. Accent highlight on moving segments
     if (this.z > 0.9 && noise(this.seed) > 0.4) {
       let phase = (t * 0.00015 + this.seed) % 1.0;
       let startIdx = floor(phase * (this.ptsCount - 6)) + 1;
       let endIdx = startIdx + 4;
       
+      noFill();
       stroke(palette.acc);
       strokeWeight(0.8 * this.z);
       beginShape();
@@ -210,7 +290,7 @@ function draw() {
     pop();
   }
   
-  // Render organic pairings
+  // Render organic pairings and their gaps
   for(let f of filaments) {
     f.draw(t);
   }
