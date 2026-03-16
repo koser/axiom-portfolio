@@ -22,6 +22,23 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
 <body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG16</span> <span class="ap-ttl">Reuleaux Morphology</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>The moodboard shows a stark black and white geometric composition: a circle containing three curved triangular sections that meet at the center, creating a Reuleaux triangle-like form with thick black boundary lines on a light gray background. The artwork brings this to life through slow, continuous morphing — the curved boundaries breathe and flex, the triangular sections rotate subtly around the center point, and the negative space between forms pulses. The rhythm is meditative and precise, like watching a mechanical organism respire.</p></div>
+</div>
+
 <script>
 const PALETTE = {
     blackMain: '#0a0a0a',

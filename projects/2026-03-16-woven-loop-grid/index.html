@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Woven Loop Grid</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG18</span> <span class="ap-ttl">Woven Loop Grid</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>The moodboard shows a 2x2 grid of four identical compositions, each containing a continuous black stroke that weaves through a regular 4x4 grid of light gray circles. The stroke forms organic, rounded rectangular shapes with varying loop patterns, creating a maze-like structure. When animated, each stroke becomes a living thread that slowly traces and retraces its path with breathing motion in the loops. The gray circles pulse in response to the stroke's proximity, and the composition exhibits gentle morphing where the stroke's bezier control points shift along constrained perpendicular vectors, maintaining the overall woven topology while introducing organic variation. The piece explores the tension between rigid grid structure and organic flow, between perfect repetition and subtle deviation.</p></div>
+</div>
+
+<script>
+let quadrants = [];
+const PALETTE = {
+    bg: '#f5f5f5',
+    stroke: '#1a1a1a',
+    grid: '#d8d8d8',
+    shadow: 'rgba(10, 10, 10, 0.18)',
+    highlight: '#e8e8e8',
+    fillActive: 'rgba(26, 26, 26, 0.05)'
+};
+
+function setup() {
+    createCanvas(800, 800);
+    noiseSeed(42);
+    
+    // 2x2 grid, 380px quadrants, 20px gutter, 10px margin
+    // Centers: TL(200,200), TR(600,200), BL(200,600), BR(600,600)
+    quadrants.push(new Quadrant(200, 200, 0));
+    quadrants.push(new Quadrant(600, 200, 0.75));
+    quadrants.push(new Quadrant(200, 600, 1.5));
+    quadrants.push(new Quadrant(600, 600, 2.25));
+    
+    applyScale();
+}
+
+function windowResized() {
+    applyScale();
+}
+
+function applyScale() {
+    // Auto-scale canvas via CSS to fit screen while maintaining 800x800 logical resolution
+    let canvasElement = document.querySelector('canvas');
+    if (!canvasElement) return;
+    let scaleFactor = min(windowWidth / 820, windowHeight / 820);
+    if(scaleFactor < 1) {
+        canvasElement.style.transform = `scale(${scaleFactor})`;
+        canvasElement.style.transformOrigin = 'center center';
+    } else {
+        canvasElement.style.transform = 'scale(1)';
+    }
+}
+
+function draw() {
+    background(245, 245, 245);
+    let t = millis() / 1000.0;
+    
+    // Cycle structure: 80s loop (73-77s decel, 77-79.5s pause, 79.5-80s accel)
+    let cycleTime = t % 80.0;
+    let motionMult = 1.0;
+    if(cycleTime > 73 && cycleTime < 77) {
+        motionMult = map(cycleTime, 73, 77, 1.0, 0.05, true);
+    } else if(cycleTime >= 77 && cycleTime < 79.5) {
+        motionMult = 0.05;
+    } else if(cycleTime >= 79.5) {
+        motionMult = map(cycleTime, 79.5, 80.0, 0.05, 1.0, true);
+    }
+
+    // Phase timings
+    let drawProg = constrain(t / 10.0, 0, 1);
+    let breathRamp = constrain(map(t, 12, 15, 0, 1), 0, 1);
+    let syncActive = t > 45;
+
+    for(let q of quadrants) {
+        q.updateAndDraw(t, motionMult, drawProg, breathRamp, syncActive);
+    }
+    
+    drawInteractionIndicator();
+}
+
+function mousePressed() {
+    // Determine which quadrant was clicked and add a wave pulse
+    for(let q of quadrants) {
+        if(dist(mouseX, mouseY, q.pos.x, q.pos.y) < 190) {
+            q.addPulse(mouseX, mouseY);
+        }
+    }
+}
+
+function drawInteractionIndicator() {
+    let t = millis();
+    let alpha = map(t, 0, 4000, 180, 0, true);
+    if(alpha <= 0) return;
+    
+    push();
+    translate(width/2, 20);
+    stroke(26, 26, 26, alpha);
+    strokeWeight(1.5);
+    noFill();
+    
+    // Custom cursor icon using curves
+    beginShape();
+    vertex(-6, -8);
+    curveVertex(-6, -8);
+    curveVertex(6, -8);
+    curveVertex(6, 4);
+    curveVertex(0, 9);
+    curveVertex(-6, 4);
+    curveVertex(-6, -8);
+    endShape(CLOSE);
+    
+    beginShape();
+    vertex(0, -4);
+    curveVertex(0, -4);
+    curveVertex(0, 1);
+    curveVertex(0, 1);
+    endShape();
+    pop();
+}
+
+class Quadrant {
+    constructor(x, y, phaseOffset) {
+        this.pos = createVector(x, y);
+        this.phase = phaseOffset;
+        this.grid = [];
+        this.pathBase = [];
+        this.pulses = [];
+        
+        // 4x4 Grid setup (38px spacing, 114px span)
+        let span = 114;
+        let start = -span / 2;
+        for(let i=0; i<16; i++) {
+            this.grid.push({
+                base: createVector(start + (i%4)*38, start + floor(i/4)*38),
+                op: 0.7, sc: 1.0, fillA: 0
+            });
+        }
+        
+        // Procedural weave path: 36 points creating a lobed, maze-like enclosure
+        // Uses polar coordinates blended with a rounded square
+        let r = 105; 
+        for(let i=0; i<36; i++) {
+            let a = (i/36) * TWO_PI;
+            // Four-lobed clover logic to weave between grid outer/inner bounds
+            let lobeRad = r * (0.85 + 0.25 * sin(a * 4 + PI/4));
+            // Rounded square envelope
+            let cosA = cos(a);
+            let sinA = sin(a);
+            let sqRad = r / max(abs(cosA), abs(sinA)) * 0.9;
+            
+            let finalRad = lerp(lobeRad, sqRad, 0.4);
+            // Slight rotation offset to make entry point look organic
+            let rotatedA = a - 0.2;
+            this.pathBase.push(createVector(cos(rotatedA) * finalRad, sin(rotatedA) * finalRad));
+        }
+    }
+
+    updateAndDraw(t, motionMult, drawProg, breathRamp, syncActive) {
+        let currentPts = [];
+        
+        // 1. Calculate Path Vertices & Displacements
+        for(let i=0; i<36; i++) {
+            let bp = this.pathBase[i];
+            
+            // Calculate true normal based on neighbors for organic expansion
+            let prev = this.pathBase[(i-1+36)%36];
+            let next = this.pathBase[(i+1)%36];
+            let tangent = p5.Vector.sub(next, prev).normalize();
+            let normDir = createVector(-tangent.y, tangent.x);
+            
+            // Layered Noise & Waves (Breathing Phase)
+            let baseDisp = map(noise(i*0.08, t*0.00015), 0, 1, -1, 1) * 6;
+            let travelDisp = sin(t*0.0008 + i*0.15) * 3;
+            
+            // Sync Phase (Quadrant cascade)
+            let syncDisp = 0;
+            if(syncActive) {
+                let waveAngle = (t - 45) * 0.314;
+                let quadrantAngle = this.phase * (PI/2); // Map phase 0-2.25s to angles roughly
+                syncDisp = (0.7 + 0.3 * sin(waveAngle - quadrantAngle)) * 4;
+            }
+            
+            let structuralDisp = (baseDisp + travelDisp + syncDisp) * breathRamp * motionMult;
+            
+            // Interaction: Mouse Proximity Repulsion/Attraction
+            let worldPt = p5.Vector.add(this.pos, bp);
+            let dMouse = dist(mouseX, mouseY, worldPt.x, worldPt.y);
+            let interactiveDisp = 0;
+            if(dMouse < 120) {
+                let force = dMouse < 40 ? 0.12 : 0.12 * pow((120-dMouse)/80, 1.5);
+                // Push along normal
+                interactiveDisp = force * 15; 
+            }
+            
+            // Interaction: Wave Pulses (Clicks)
+            let pulseDisp = 0;
+            for(let j=this.pulses.length-1; j>=0; j--) {
+                let pulse = this.pulses[j];
+                let age = t - pulse.t;
+                if(age > 2.0) {
+                    this.pulses.splice(j, 1);
+                    continue;
+                }
+                let ringRad = age * 180;
+                let distToClick = dist(worldPt.x, worldPt.y, pulse.x, pulse.y);
+                let distToRing = abs(distToClick - ringRad);
+                let amp = 12 * exp(-age * 2.5); // decay
+                pulseDisp += amp * exp(-pow(distToRing/40, 2) * 4.5);
+            }
+            
+            let finalDisp = constrain(structuralDisp + interactiveDisp + pulseDisp, -24, 24);
+            currentPts.push(p5.Vector.add(bp, p5.Vector.mult(normDir, finalDisp)));
+        }
+
+        // 2. Render Grid Circles with Proximity Logic
+        push();
+        translate(this.pos.x, this.pos.y);
+        
+        for(let g of this.grid) {
+            // Find nearest path point to determine opacity
+            let minDistSq = 999999;
+            for(let p of currentPts) {
+                let dSq = pow(g.base.x - p.x, 2) + pow(g.base.y - p.y, 2);
+                if(dSq < minDistSq) minDistSq = dSq;
+            }
+            let minDist = sqrt(minDistSq);
+            
+            // Opacity mapping based on path distance
+            let targetOp = 0.7;
+            if(drawProg < 0.1) targetOp = 0; // Hide initially
+            else if(minDist < 25) targetOp = 1.0;
+            else if(minDist < 50) targetOp = map(minDist, 25, 50, 1.0, 0.85);
+            
+            g.op = lerp(g.op, targetOp, 0.1);
+            
+            // Mouse Interaction mapping
+            let worldG = p5.Vector.add(this.pos, g.base);
+            let mDist = dist(mouseX, mouseY, worldG.x, worldG.y);
+            
+            let targetSc = mDist < 30 ? 1.15 : 1.0 + (g.op - 0.7) * 0.1;
+            g.sc = lerp(g.sc, targetSc, 0.15);
+            
+            let targetFillA = mDist < 30 ? 0.05 : 0;
+            g.fillA = lerp(g.fillA, targetFillA, 0.2);
+
+            // Draw custom non-primitive circle
+            push();
+            translate(g.base.x, g.base.y);
+            scale(g.sc);
+            stroke(216, 216, 216, g.op * 255);
+            strokeWeight(1.5);
+            
+            if(g.fillA > 0.01) {
+                fill(`rgba(26,26,26,${g.fillA})`);
+            } else {
+                noFill();
+            }
+            
+            beginShape();
+            for(let a=0; a<TWO_PI; a+=0.628) { // 10 vertices
+                vertex(cos(a)*15, sin(a)*15);
+            }
+            endShape(CLOSE);
+            pop();
+        }
+
+        // 3. Render Weave Path
+        let visiblePts = floor(map(drawProg, 0, 1, 0, 36, true));
+        if(visiblePts > 0) {
+            this.drawWeave(currentPts, visiblePts, true);  // Shadow
+            this.drawWeave(currentPts, visiblePts, false); // Main Stroke
+        }
+        
+        pop();
+    }
+
+    drawWeave(pts, limit, isShadow) {
+        push();
+        noFill();
+        strokeJoin(ROUND);
+        strokeCap(ROUND);
+        
+        if(isShadow) {
+            translate(1.2, 1.2);
+            stroke(10, 10, 10, 46); // alpha 0.18
+            strokeWeight(2.8);
+        } else {
+            stroke(26, 26, 26);
+            strokeWeight(2.8);
+        }
+        
+        beginShape();
+        if(limit === 36) {
+            // Closed seamless loop requires wrapping first 3 vertices
+            for(let i=0; i<39; i++) {
+                let p = pts[i % 36];
+                curveVertex(p.x, p.y);
+            }
+        } else {
+            // Progressive drawing phase
+            for(let i=0; i<limit; i++) {
+                curveVertex(pts[i].x, pts[i].y);
+            }
+        }
+        endShape();
+        pop();
+    }
+
+    addPulse(mx, my) {
+        this.pulses.push({t: millis()/1000.0, x: mx, y: my});
+    }
+}
+</script>
+</body>
+</html>

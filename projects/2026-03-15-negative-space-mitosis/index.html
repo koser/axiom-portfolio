@@ -11,6 +11,23 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
 <body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG14</span> <span class="ap-ttl">Negative Space Mitosis</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>A choreographed study of organic division driven by negative space. Soft, bulbous forms — constructed from smoothed vertex paths with noise-driven perturbations — slowly split and merge, creating transient pockets of void that feel as tangible as the mass. Inspired by the moodboard's interplay between heavy black forms and the white voids they carve, this piece treats emptiness as an active participant in the composition, constantly reshaping the relationship between figure and ground.</p></div>
+</div>
+
 <script>
 // Palette
 const C_BG = '#F8F8F6';
