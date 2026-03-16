@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vertical Interference Pattern</title>
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #0a0a0a;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<script>
+const C_VOID = '#0a0a0a';
+const C_PRI = '#ffffff';
+const C_SEC = '#1a1a1a';
+const C_ACC = '#f2f2f2';
+
+let bands = [];
+let scans = [];
+let lastScanTime = 0;
+let lastResetTime = 0;
+let grainOffset = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  noiseSeed(12345);
+  initSystem();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  initSystem();
+}
+
+function initSystem() {
+  bands = [];
+  scans = [];
+  lastScanTime = millis();
+  lastResetTime = millis();
+  
+  let targetBandWidth = 28;
+  let numBands = floor((width - 80) / targetBandWidth);
+  let startX = (width - (numBands * targetBandWidth)) / 2;
+  
+  for (let i = 0; i < numBands; i++) {
+    let bw = random(20, 35);
+    let isWhite = i % 2 === 0;
+    let col = isWhite ? C_PRI : C_VOID;
+    bands.push(new Band(startX, bw, col, i));
+    startX += bw + random(1, 2); 
+  }
+}
+
+class Segment {
+  constructor(x, y, w, h, bIdx, sIdx, col) {
+    this.baseX = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.bIdx = bIdx;
+    this.sIdx = sIdx;
+    this.baseCol = color(col);
+    this.dispMult = 1.0;
+    this.accumOffset = 0;
+    
+    this.dropoutActive = false;
+    this.dropoutEndTime = 0;
+    this.flickerState = true;
+    
+    this.targetAccum = 0;
+    this.isResetting = false;
+    this.resetStartTime = 0;
+  }
+
+  applyImpact(force) {
+    this.dispMult = force;
+  }
+
+  triggerDropout(t) {
+    this.dropoutActive = true;
+    this.dropoutEndTime = t + random(1200, 3000);
+  }
+  
+  triggerReset(t) {
+    this.isResetting = true;
+    this.resetStartTime = t;
+    this.targetAccum = 0;
+  }
+
+  update(t, phase) {
+    // Decay multiplier
+    if (this.dispMult > 1.0) {
+      this.dispMult = lerp(this.dispMult, 1.0, 0.015);
+    }
+
+    // Phase 3 logic
+    if (phase >= 3) {
+      if (this.isResetting) {
+        let prog = constrain((t - this.resetStartTime) / 1500, 0, 1);
+        // Exponential ease in out
+        let ease = prog < 0.5 ? 2 * prog * prog : 1 - pow(-2 * prog + 2, 2) / 2;
+        this.accumOffset = lerp(this.accumOffset, 0, ease);
+        if (prog === 1) this.isResetting = false;
+      } else {
+        this.accumOffset += (noise(this.sIdx * 0.05, t * 0.0001) - 0.5) * 0.5;
+      }
+
+      if (!this.dropoutActive && random() < 0.0008) {
+        this.triggerDropout(t);
+      }
+    }
+
+    if (this.dropoutActive) {
+      if (t > this.dropoutEndTime) {
+        this.dropoutActive = false;
+      } else {
+        // Flicker near the end
+        if (this.dropoutEndTime - t < 500) {
+          this.flickerState = floor(t / 50) % 2 === 0;
+        } else {
+          this.flickerState = false; // Hold invisible
+        }
+      }
+    } else {
+      this.flickerState = true;
+    }
+  }
+
+  getDisplacement(yPos, t, phase) {
+    let baseDisp = (noise(yPos * 0.008, t * 0.003) - 0.5) * 30 * this.dispMult;
+    let phase1Disp = 0;
+    
+    if (phase === 1) {
+      let wobbleAmp = 0;
+      if (t > 3000 && t < 7000) wobbleAmp = map(t, 3000, 7000, 0, 2);
+      else if (t >= 7000) wobbleAmp = map(min(t, 12000), 7000, 12000, 2, 5);
+      
+      let depthLimit = map(min(t, 12000), 7000, 12000, 0.15, 0.4);
+      if (yPos / height < depthLimit) {
+        phase1Disp = sin(t * 0.004 + this.bIdx * 0.3) * wobbleAmp;
+      }
+    } else if (phase >= 3) {
+      baseDisp += map(noise(this.bIdx), 0, 1, 6, 10);
+    }
+    
+    return baseDisp + phase1Disp + this.accumOffset;
+  }
+
+  draw(t, phase) {
+    let op = this.flickerState ? 255 : 0;
+    if (this.dropoutActive && !this.flickerState && (this.dropoutEndTime - t > 500)) {
+      // Fade out transition
+      let fadeTime = (this.dropoutEndTime - t) - (this.dropoutEndTime - this.resetStartTime - 500); // approx
+      op = map(fadeTime, 0, 200, 0, 255, true);
+    }
+    if (op <= 0) return;
+
+    let dtTop = this.getDisplacement(this.y, t, phase);
+    let dtBot = this.getDisplacement(this.y + this.h, t, phase);
+
+    push();
+    fill(red(this.baseCol), green(this.baseCol), blue(this.baseCol), op);
+    stroke(C_SEC);
+    strokeWeight(1);
+    
+    let mwTL = (noise(0, t * 0.01) - 0.5);
+    let mwTR = (noise(1, t * 0.01) - 0.5);
+    let mwBR = (noise(2, t * 0.01) - 0.5);
+    let mwBL = (noise(3, t * 0.01) - 0.5);
+
+    beginShape(QUADS);
+    vertex(this.baseX + dtTop + mwTL, this.y);
+    vertex(this.baseX + this.w + dtTop + mwTR, this.y);
+    vertex(this.baseX + this.w + dtBot + mwBR, this.y + this.h);
+    vertex(this.baseX + dtBot + mwBL, this.y + this.h);
+    endShape(CLOSE);
+
+    // Tertiary: Dropout artifacts (small rects during damage)
+    if (this.dispMult > 1.5 && random() < 0.1 && op > 100) {
+      let aw = this.w * 0.4;
+      let ah = random(15, 40);
+      let ax = this.baseX + dtTop + random(0, this.w - aw);
+      let ay = this.y + random(0, this.h - ah);
+      fill(C_VOID);
+      stroke(C_SEC);
+      beginShape(QUADS);
+      vertex(ax, ay);
+      vertex(ax+aw, ay);
+      vertex(ax+aw, ay+ah);
+      vertex(ax, ay+ah);
+      endShape(CLOSE);
+    }
+    pop();
+  }
+}
+
+class Band {
+  constructor(x, w, col, idx) {
+    this.segments = [];
+    let segCount = floor(random(40, 60));
+    let h = height / segCount;
+    for (let i = 0; i < segCount; i++) {
+      this.segments.push(new Segment(x, i * h, w, h, idx, i, col));
+    }
+  }
+
+  updateAndDraw(t, phase) {
+    for (let s of this.segments) {
+      s.update(t, phase);
+      s.draw(t, phase);
+    }
+  }
+}
+
+class ScanWave {
+  constructor(t) {
+    this.spawnTime = t;
+    this.startX = -100;
+    this.startY = height + 100;
+    this.angle = radians(70);
+    this.speed = 4.2 * (60/frameRate() || 1); // Normalize roughly to 60fps equivalent
+    this.active = true;
+    this.px = this.startX;
+    this.py = this.startY;
+  }
+
+  update(t, bands) {
+    let ageFrame = (t - this.spawnTime) / (1000/60);
+    
+    // Move along vector
+    this.px += cos(this.angle) * this.speed;
+    this.py -= sin(this.angle) * this.speed; // Negative because origin is top-left
+
+    let op = 0;
+    if (ageFrame < 15) {
+      op = map(ageFrame, 0, 15, 0, 0.25);
+    } else if (this.px > width + 100) {
+      let exitFrames = (this.px - (width + 100)) / this.speed;
+      op = map(exitFrames, 0, 20, 0.25, 0, true);
+      if (op <= 0) this.active = false;
+    } else {
+      op = 0.25;
+    }
+
+    // Collision check (simplified line proximity)
+    if (op > 0) {
+      for (let b of bands) {
+        for (let s of b.segments) {
+          // Check if segment is roughly near the current leading point of the scan
+          // The scan forms a line y - py = m(x - px). 
+          // Since it moves fast, just checking distance to current point creates a trailing impact wave
+          let dx = s.baseX - this.px;
+          let dy = s.y - this.py;
+          let distSq = dx*dx + dy*dy;
+          
+          // Trigger if within radius and slightly ahead or on the wave
+          if (distSq < 15000 && dx > -50 && dy < 50) {
+             if (s.dispMult < 1.5) { // Prevent constant re-triggering
+               s.applyImpact(random(2.0, 2.8));
+             }
+          }
+        }
+      }
+    }
+
+    if (op > 0) {
+      push();
+      stroke(255, 255, 255, op * 255);
+      strokeWeight(4);
+      noFill();
+      // Construct Bezier with wobble
+      let cx1 = this.px - cos(this.angle)*200 + noise(t*0.002)*100;
+      let cy1 = this.py + sin(this.angle)*200 + noise(t*0.002+1)*100;
+      let cx2 = this.px - cos(this.angle)*400 - noise(t*0.002+2)*100;
+      let cy2 = this.py + sin(this.angle)*400 - noise(t*0.002+3)*100;
+      let ex = this.px - cos(this.angle)*1000;
+      let ey = this.py + sin(this.angle)*1000;
+      
+      bezier(this.px, this.py, cx1, cy1, cx2, cy2, ex, ey);
+      pop();
+    }
+  }
+}
+
+function draw() {
+  background(C_VOID);
+  let t = millis();
+  
+  // Determine Phase
+  let phase = 1;
+  if (t > 45000) phase = 3;
+  else if (t > 12000) phase = 2;
+
+  // Grain Texture Layer (Optimized approach instead of per-pixel loops)
+  push();
+  strokeWeight(1);
+  grainOffset = (grainOffset + 0.5) % height;
+  for (let x = 0; x < width; x += 4) {
+    let a = random(0.2, 0.4) * 255;
+    stroke(255, 255, 255, a);
+    let y = (x * 7 + grainOffset) % height;
+    line(x, y, x, y + random(10, 50));
+    let y2 = (x * 13 + grainOffset * 1.5) % height;
+    line(x, y2, x, y2 + random(5, 20));
+  }
+  pop();
+
+  // Draw Bands
+  for (let b of bands) {
+    b.updateAndDraw(t, phase);
+  }
+
+  // Manage Scan Waves
+  if (phase >= 2 && t - lastScanTime > 3500) {
+    scans.push(new ScanWave(t));
+    lastScanTime = t;
+  }
+
+  for (let i = scans.length - 1; i >= 0; i--) {
+    scans[i].update(t, bands);
+    if (!scans[i].active) {
+      scans.splice(i, 1);
+    }
+  }
+
+  // Manage Reset Events (Phase 3)
+  if (phase === 3 && t - lastResetTime > 12000) {
+    for (let b of bands) {
+      for (let s of b.segments) {
+        if (random() < 0.3) {
+          s.triggerReset(t);
+        }
+      }
+    }
+    lastResetTime = t;
+  }
+  
+  // Subtle vignette
+  let r = max(width, height);
+  let grad = drawingContext.createRadialGradient(width/2, height/2, 0, width/2, height/2, r*0.8);
+  grad.addColorStop(0, 'rgba(10,10,10,0)');
+  grad.addColorStop(1, 'rgba(10,10,10,0.6)');
+  drawingContext.fillStyle = grad;
+  drawingContext.fillRect(0, 0, width, height);
+}
+</script>
+</head>
+<body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG23</span> <span class="ap-ttl">Vertical Interference Pattern</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>A study in aggressive visual rhythm disruption through scanning interference. The piece channels the moodboard's harsh vertical striping and glitch-like fragmentation into an autonomous system where sharp vertical bands are progressively torn apart by diagonal scanning waves. This is not about harmony — it's about controlled visual violence, signal degradation, and the moment just before resolution collapses into noise.</p></div>
+</div>
+
+</body>
+</html>
