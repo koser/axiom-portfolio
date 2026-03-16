@@ -28,26 +28,20 @@
 </div>
 
 <script>
-let strands = [];
-let bgLines = [];
-let waves = [];
-let lastMouseTime = 0;
-let nextSpikeTime = 20000;
-let nextSnapTime = 35000;
-let isSpike = false;
-let spikeStartTime = 0;
-
 const palette = {
   bg: '#fafaf8', 
   main: '#0d0d0d', 
   sec: '#1a1a1a', 
   acc: '#f2f2f0', 
-  bgTex: '#f0f0ee'
+  bgTex: '#ebebe8'
 };
+
+let filaments = [];
+let bgLines = [];
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
-  noiseSeed(42);
+  noiseSeed(8765);
   initSystem();
 }
 
@@ -57,275 +51,156 @@ function windowResized() {
 }
 
 function initSystem() {
-  strands = [];
+  filaments = [];
   bgLines = [];
   
-  for(let i=0; i<600; i++) {
+  // Create subtle floating background curves to give the canvas texture
+  for(let i=0; i<250; i++) {
     bgLines.push({
       x: random(width), y: random(height),
-      cx1: random(-40, 40), cy1: random(-40, 40),
-      cx2: random(-40, 40), cy2: random(-40, 40),
-      x2: random(-40, 40), y2: random(-40, 40),
+      cx1: random(-60, 60), cy1: random(-60, 60),
+      cx2: random(-60, 60), cy2: random(-60, 60),
+      x2: random(-60, 60), y2: random(-60, 60),
       rot: random(TWO_PI),
-      speed: random(0.0001, 0.0005)
+      speed: random(0.0001, 0.0003) * (random() > 0.5 ? 1 : -1)
     });
   }
   
-  let cols = 8;
-  let colWidth = width / cols;
-  for(let c=0; c<cols; c++) {
-    let numStrands = int(random(2, 4));
-    for(let s=0; s<numStrands; s++) {
-      let baseX = c * colWidth + colWidth/2 + random(-20, 20);
-      let strand = new Strand(baseX, random(0.4, 0.9), c);
-      strand.birthTime = -2000; 
-      strands.push(strand);
-    }
+  // Distribute paired filaments across the width
+  let density = map(width, 400, 2000, 15, 60);
+  for(let i=0; i<density; i++) {
+    let x = map(i, 0, density, -150, width + 150) + random(-40, 40);
+    let z = random(0.5, 1.4); // Z-index for parallax and thickness
+    filaments.push(new Filament(x, z));
   }
+  
+  // Sort from background to foreground to ensure correct overlap
+  filaments.sort((a, b) => a.z - b.z);
 }
 
-class Strand {
-  constructor(baseX, tension, colIdx) {
-    this.origBaseX = baseX;
-    this.tension = tension;
-    this.colIdx = colIdx;
-    this.seed = random(1000);
-    this.isSecondary = random() > 0.7;
-    this.isCounterPhase = random() > 0.7;
-    this.birthTime = millis();
-    this.decaying = false;
-    this.opacity = 0;
-    this.noiseInfBase = 0;
-    this.snapping = false;
+class Filament {
+  constructor(x, z) {
+    this.baseX = x;
+    this.z = z;
+    this.seed = random(10000);
     
-    this.ptsCount = 45;
-    this.pts = [];
-    let spacing = max(height / 35, 20);
+    // Calculate points extending slightly past the vertical bounds
+    this.ptsCount = ceil(height / 35) + 4;
+    this.spacing = height / (this.ptsCount - 4);
+    
+    // Organic membrane properties
+    this.baseWidth = random(8, 35) * z;
+    this.hasVein = random() > 0.5;
+  }
+  
+  draw(t) {
+    let leftPts = [];
+    let rightPts = [];
+    let centerPts = [];
+    
     for(let i=0; i<this.ptsCount; i++) {
-      this.pts.push({
-        y: (i - 2) * spacing,
-        baseNoisePhase: random(TWO_PI),
-        bulgeTimer: random(3000, 5000),
-        bulgeMult: 1,
-        bulgeActiveTime: 0
-      });
-    }
-    this.currentPts = [];
-  }
-  
-  checkLifecycle(t) {
-    let age = t - this.birthTime;
-    if(age < 2000) {
-      this.opacity = map(age, 0, 2000, 0, 1);
-      this.noiseInfBase = map(age, 0, 2000, 0, 1);
-    } else if(!this.decaying) {
-      this.opacity = 1;
-      this.noiseInfBase = 1;
-      if(age > 30000 && random() < 0.003) {
-        this.decaying = true;
-        this.decayStartTime = t;
-      }
-    } else {
-      let decayAge = t - this.decayStartTime;
-      if(decayAge < 5000) {
-        this.noiseInfBase = map(decayAge, 0, 5000, 1, 0.1);
-        this.opacity = map(decayAge, 0, 5000, 1, 0);
-      } else {
-        this.reset(t);
-      }
-    }
-  }
-  
-  reset(t) {
-    this.birthTime = t;
-    this.decaying = false;
-    this.baseX = random(width);
-    this.origBaseX = this.baseX;
-    this.seed = random(1000);
-    this.isSecondary = random() > 0.7;
-    this.isCounterPhase = random() > 0.7;
-    this.snapping = false;
-    this.opacity = 0;
-    this.noiseInfBase = 0;
-  }
-  
-  update(t, dt, phase, driftAmt, repulseAmt, freqMult, tensionMult, globalNoiseSpeed) {
-    this.checkLifecycle(t);
-    
-    let currentNoiseInf = this.noiseInfBase;
-    if(this.snapping) {
-      let snapAge = t - this.snapStartTime;
-      if(snapAge < 750) currentNoiseInf *= map(snapAge, 0, 750, 1, 0.1);
-      else if(snapAge < 3750) currentNoiseInf *= map(snapAge, 750, 3750, 0.1, 1);
-      else this.snapping = false;
+      let y = (i - 2) * this.spacing;
+      let ny = y * 0.0015;
+      let nt = t * 0.0003;
+      
+      // Primary natural sway based on location and time
+      let sway = (noise(this.baseX * 0.005, ny, nt) - 0.5) * 450 * this.z;
+      
+      // Secondary lively wobble specific to this filament
+      let wobble = (noise(this.seed, ny * 3, nt * 1.5) - 0.5) * 80 * this.z;
+      
+      let cx = this.baseX + sway + wobble;
+      
+      // Dynamic width calculation creates the bulging/constricting membrane feel
+      let widthNoise = noise(this.seed + 500, ny * 2, nt * 1.8);
+      // Ease the noise for sharper constrictions and smoother bulges
+      let widthEased = pow(widthNoise, 1.8);
+      let dynamicWidth = map(widthEased, 0, 1, 2, this.baseWidth * 2.8);
+      
+      // Add independent micro-wiggle to edges for organic tension
+      let leftWiggle = (noise(this.seed + 1000, ny * 4, nt * 2.5) - 0.5) * 12 * this.z;
+      let rightWiggle = (noise(this.seed + 2000, ny * 4, nt * 2.5) - 0.5) * 12 * this.z;
+      
+      leftPts.push({x: cx - dynamicWidth/2 + leftWiggle, y: y});
+      rightPts.push({x: cx + dynamicWidth/2 + rightWiggle, y: y});
+      centerPts.push({x: cx, y: y});
     }
     
-    this.drift = map(noise(t * 0.0005 + this.colIdx * 100), 0, 1, -120, 120) * driftAmt;
-    let currentBaseX = this.origBaseX + this.drift;
+    // 1. Fill the space between the pairings with solid color (membrane body)
+    let fillCol = color(palette.main);
+    fillCol.setAlpha(245); // Very slight transparency helps depth when layering
+    fill(fillCol);
+    noStroke();
+    
+    beginShape();
+    // Anchor left side
+    curveVertex(leftPts[0].x, leftPts[0].y);
+    for(let pt of leftPts) curveVertex(pt.x, pt.y);
+    curveVertex(leftPts[leftPts.length-1].x, leftPts[leftPts.length-1].y);
+    // Anchor right side in reverse
+    curveVertex(rightPts[rightPts.length-1].x, rightPts[rightPts.length-1].y);
+    for(let i=rightPts.length-1; i>=0; i--) curveVertex(rightPts[i].x, rightPts[i].y);
+    curveVertex(rightPts[0].x, rightPts[0].y);
+    endShape(CLOSE);
+    
+    // 2. Draw the outlining curves defining the network strands
+    noFill();
+    stroke(palette.sec);
+    strokeWeight(1.8 * this.z);
+    
+    // Left edge strand
+    beginShape();
+    curveVertex(leftPts[0].x, leftPts[0].y);
+    for(let pt of leftPts) curveVertex(pt.x, pt.y);
+    curveVertex(leftPts[leftPts.length-1].x, leftPts[leftPts.length-1].y);
+    endShape();
+    
+    // Right edge strand
+    beginShape();
+    curveVertex(rightPts[0].x, rightPts[0].y);
+    for(let pt of rightPts) curveVertex(pt.x, pt.y);
+    curveVertex(rightPts[rightPts.length-1].x, rightPts[rightPts.length-1].y);
+    endShape();
 
-    if(repulseAmt > 0 && this.origBaseX > width * 0.3 && this.origBaseX < width * 0.7) {
-      let targetX = this.origBaseX < width / 2 ? width * 0.2 : width * 0.8;
-      currentBaseX = lerp(currentBaseX, targetX, repulseAmt * 0.8);
+    // 3. Central microscopic vein for added tension detail
+    if (this.hasVein && this.baseWidth > 15) {
+      let veinCol = color(palette.sec);
+      veinCol.setAlpha(120);
+      stroke(veinCol);
+      strokeWeight(0.6 * this.z);
+      beginShape();
+      curveVertex(centerPts[0].x, centerPts[0].y);
+      for(let pt of centerPts) curveVertex(pt.x, pt.y);
+      curveVertex(centerPts[centerPts.length-1].x, centerPts[centerPts.length-1].y);
+      endShape();
     }
     
-    currentBaseX = (currentBaseX % width + width) % width;
-    
-    this.currentPts = [];
-    for(let i=0; i<this.pts.length; i++) {
-      let pt = this.pts[i];
+    // 4. Accent highlight on moving segments
+    if (this.z > 0.9 && noise(this.seed) > 0.4) {
+      let phase = (t * 0.00015 + this.seed) % 1.0;
+      let startIdx = floor(phase * (this.ptsCount - 6)) + 1;
+      let endIdx = startIdx + 4;
       
-      pt.bulgeTimer -= dt;
-      if(pt.bulgeTimer <= 0 && pt.bulgeMult === 1) {
-        pt.bulgeMult = random(1.6, 2.1);
-        pt.bulgeActiveTime = 1500;
+      stroke(palette.acc);
+      strokeWeight(0.8 * this.z);
+      beginShape();
+      curveVertex(leftPts[startIdx-1].x - 1.5, leftPts[startIdx-1].y);
+      for(let i=startIdx; i<=endIdx; i++) {
+        curveVertex(leftPts[i].x - 1.5, leftPts[i].y);
       }
-      let cBulge = 1;
-      if(pt.bulgeActiveTime > 0) {
-        pt.bulgeActiveTime -= dt;
-        cBulge = map(sin((pt.bulgeActiveTime/1500) * PI), 0, 1, 1, pt.bulgeMult);
-        if(pt.bulgeActiveTime <= 0) {
-          pt.bulgeMult = 1;
-          pt.bulgeTimer = random(3000, 5000);
-        }
-      }
-      
-      let nx = currentBaseX * 0.003 + pt.baseNoisePhase;
-      let ny = pt.y * 0.003;
-      let nt = t * globalNoiseSpeed * freqMult + pt.y * 0.1;
-      
-      let nVal = noise(nx, ny, nt);
-      if(phase >= 2 && this.isCounterPhase) nVal = 1.0 - nVal;
-      
-      if(phase === 3) nVal += (noise(nx*3, ny*3, nt*1.5) - 0.5) * repulseAmt * 0.5;
-      
-      let offset = (nVal * 2 - 1) * 80 * this.tension * tensionMult * currentNoiseInf * cBulge;
-      let px = currentBaseX + offset;
-      
-      for(let w of waves) {
-        let d = dist(px, pt.y, w.x, w.y);
-        if(d < 200) {
-          let force = map(d, 0, 200, 15, 0) * w.strength;
-          px += (px < w.x ? -1 : 1) * force;
-        }
-      }
-      
-      this.currentPts.push({x: px, y: pt.y});
-    }
-  }
-  
-  draw(t, phase) {
-    if(this.opacity <= 0.01) return;
-    
-    let col = color(this.isSecondary ? palette.sec : palette.main);
-    
-    for(let i=0; i<this.currentPts.length-1; i++) {
-      let p1 = this.currentPts[max(i-1, 0)];
-      let p2 = this.currentPts[i];
-      let p3 = this.currentPts[i+1];
-      let p4 = this.currentPts[min(i+2, this.currentPts.length-1)];
-      
-      let distFromTop = constrain(p2.y / height, 0, 1);
-      let taper = sin(distFromTop * PI);
-      let osc = map(sin(t * 0.002 + this.seed), -1, 1, 0.8, 1.2);
-      let sw = map(taper * osc, 0, 1.2, 1.5, 3.5);
-      
-      let wDist = 999;
-      for(let w of waves) {
-        let d = dist(p2.x, p2.y, w.x, w.y);
-        if(d < 200) {
-          sw *= (1 + 0.4 * w.strength);
-          wDist = min(wDist, d);
-        }
-      }
-      
-      if(this.decaying) sw *= map(this.opacity, 0, 1, 0.5, 1);
-      
-      let alphaVal = this.decaying ? 255 : (wDist < 200 ? 180 : 255);
-      col.setAlpha(this.opacity * alphaVal);
-      stroke(col);
-      strokeWeight(sw);
-      noFill();
-      curve(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y);
-      
-      let curv = abs((p3.x - p2.x) - (p2.x - p1.x));
-      if(curv > 8 && noise(i, this.seed, t*0.0005) > 0.6) {
-        let accCol = color(palette.acc);
-        let accAlpha = phase === 3 ? map(noise(i, t*0.005), 0, 1, 100, 255) : 150;
-        accCol.setAlpha(accAlpha * this.opacity);
-        stroke(accCol);
-        strokeWeight(0.8);
-        curve(p1.x+3, p1.y, p2.x+3, p2.y, p3.x+3, p3.y, p4.x+3, p4.y);
-      }
+      curveVertex(leftPts[endIdx+1].x - 1.5, leftPts[endIdx+1].y);
+      endShape();
     }
   }
 }
 
 function draw() {
-  background(color(palette.bg));
+  background(palette.bg);
   let t = millis();
-  let dt = deltaTime;
   
-  let phase = 1;
-  if(t > 12000 && t <= 35000) phase = 2;
-  else if(t > 35000) phase = 3;
-
-  let driftAmt = constrain(map(t, 12000, 15000, 0, 1), 0, 1);
-  let repulseAmt = constrain(map(t, 35000, 38000, 0, 1), 0, 1);
-
-  let autoMx = noise(t * 0.0003) * width;
-  let autoMy = noise(t * 0.0002 + 100) * height;
-
-  let activeMx = mouseX;
-  let activeMy = mouseY;
-  if(t - lastMouseTime > 3000 || (mouseX === 0 && mouseY === 0)) {
-    let blend = constrain(map(t - lastMouseTime, 3000, 7000, 0, 1), 0, 1);
-    activeMx = lerp(mouseX || autoMx, autoMx, blend);
-    activeMy = lerp(mouseY || autoMy, autoMy, blend);
-  }
-
-  let xRatio = constrain(activeMx / max(width, 1), 0, 1);
-  let freqMult = map(pow(xRatio, 1.6), 0, 1, 0.5, 2.2);
-  let tensionMult = map(constrain(activeMy, 0, height), 0, height, 0.3, 1.2);
-
-  let globalNoiseSpeed = lerp(0.0008, 0.0015, driftAmt);
-  let breathing = sin(t * 0.00131) * 0.5 + 0.5;
-  globalNoiseSpeed *= map(breathing, 0, 1, 0.8, 1.2);
-
-  if(t > nextSpikeTime) {
-    isSpike = true;
-    spikeStartTime = t;
-    nextSpikeTime = t + random(15000, 23000);
-  }
-  
-  if(isSpike) {
-    let sAge = t - spikeStartTime;
-    if(sAge < 2000) globalNoiseSpeed *= 2.5;
-    else if(sAge < 5000) globalNoiseSpeed *= map(sAge, 2000, 5000, 2.5, 1);
-    else isSpike = false;
-  }
-  
-  if(phase === 3 && t > nextSnapTime) {
-    let activeStrands = strands.filter(s => !s.decaying && !s.snapping);
-    if(activeStrands.length > 0) {
-      let chosen = random(activeStrands);
-      chosen.snapping = true;
-      chosen.snapStartTime = t;
-    }
-    nextSnapTime = t + random(8000, 12000);
-  }
-
-  for(let i = waves.length - 1; i >= 0; i--) {
-    let w = waves[i];
-    let age = t - w.startTime;
-    if(age > 3000) waves.splice(i, 1);
-    else w.strength = map(age, 0, 3000, 1, 0);
-  }
-
-  for(let s of strands) s.update(t, dt, phase, driftAmt, repulseAmt, freqMult, tensionMult, globalNoiseSpeed);
-
-  let bgCol = color(palette.bgTex);
-  stroke(bgCol);
-  strokeWeight(0.3);
+  // Render ambient background field
+  stroke(palette.bgTex);
+  strokeWeight(0.6);
   noFill();
   for(let l of bgLines) {
     push();
@@ -334,68 +209,11 @@ function draw() {
     bezier(0, 0, l.cx1, l.cy1, l.cx2, l.cy2, l.x2, l.y2);
     pop();
   }
-
-  let blobCol = color(13, 13, 13);
-  for(let i=0; i<strands.length; i++) {
-    if (strands[i].opacity < 0.5) continue;
-    for(let j=i+1; j<strands.length; j++) {
-      if (strands[j].opacity < 0.5) continue;
-      for(let k=2; k<strands[i].currentPts.length-2; k += 4) {
-        let p1 = strands[i].currentPts[k];
-        let p2 = strands[j].currentPts[k];
-        let d = abs(p1.x - p2.x);
-        if(d < 25) {
-          let mx = (p1.x + p2.x)/2;
-          let my = p1.y;
-          let r = 8 + noise(mx * 0.01, my * 0.01, t * 0.001) * 6;
-          let bAlpha = map(d, 0, 25, 150, 0);
-          blobCol.setAlpha(bAlpha);
-          fill(blobCol);
-          noStroke();
-          beginShape();
-          for(let a=0; a<TWO_PI; a+=PI/3) {
-            let nr = r + noise(mx, my, a + t*0.002) * 5 - 2.5;
-            vertex(mx + cos(a)*nr, my + sin(a)*nr);
-          }
-          endShape(CLOSE);
-        }
-      }
-    }
+  
+  // Render organic pairings
+  for(let f of filaments) {
+    f.draw(t);
   }
-
-  for(let s of strands) s.draw(t, phase);
-  
-  drawInteractionIndicator();
-}
-
-function mouseMoved() { lastMouseTime = millis(); }
-function mouseDragged() { lastMouseTime = millis(); }
-function mousePressed() {
-  lastMouseTime = millis();
-  waves.push({ x: mouseX, y: mouseY, startTime: millis(), life: 3000 });
-}
-
-function drawInteractionIndicator() {
-  let elapsed = millis();
-  if (elapsed > 4000) return;
-  let alpha = map(elapsed, 0, 4000, 180, 0);
-  
-  push();
-  translate(width/2, 30);
-  noStroke();
-  
-  fill(13, 13, 13, alpha);
-  beginShape();
-  vertex(-6, -8);
-  bezierVertex(-6, -14, 6, -14, 6, -8);
-  vertex(6, 4);
-  bezierVertex(6, 10, -6, 10, -6, 4);
-  endShape(CLOSE);
-  
-  fill(242, 242, 240, alpha);
-  rectMode(CENTER);
-  rect(0, -4, 2, 4, 2);
-  pop();
 }
 </script>
 </body>
