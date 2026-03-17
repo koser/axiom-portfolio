@@ -18,6 +18,23 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
 <body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG19</span> <span class="ap-ttl">Serpent Grid Orbits</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>Four distinct quadrants in a 2x2 grid, each containing a 5x5 arrangement of gray circles that act as gravitational wells. A black line serpent with finite length (800px) continuously grows from its head while retracting from its tail, maintaining constant total length. Each quadrant features a different hunting pattern: top-left uses tight spiral wrapping, top-right employs angular zigzag weaving, bottom-left creates flowing S-curve embraces, bottom-right traces geometric hexagonal captures. The line is drawn as a smooth catmull-rom spline through dynamically updated control points, creating organic curves as it seeks the nearest unwrapped circle. Circles pulse with magnetic attraction fields (15-25px radius) that pull the line's growth direction, and neighboring circles within each quadrant push/pull against each other creating subtle oscillating drift (±3-8px amplitude, 4-7 second periods, phase-shifted). When the serpent wraps a circle (passing within 12px), that circle blooms to 1.4x size over 0.6 seconds then slowly deflates. The line never stops evolving — as the head seeks new circles, the tail retracts from old territory, creating perpetual organic motion that balances exploration and constraint.</p></div>
+</div>
+
     <script>
         let quads = [];
         let logicalSize = 984; // 8 margin + 480 + 8 gutter + 480 + 8 margin
@@ -186,13 +203,15 @@
         class Serpent {
             constructor(x, y, qIdx, circles) {
                 this.pts = [];
-                for (let i = 0; i < 50; i++) this.pts.push(createVector(x, y));
+                // Dramatically increased length (approx 800px total length dynamically)
+                this.maxLen = 380; 
+                for (let i = 0; i < this.maxLen; i++) this.pts.push(createVector(x, y));
+                
                 this.qIdx = qIdx;
                 this.circles = circles;
                 this.head = createVector(x, y);
                 this.vel = p5.Vector.random2D().mult(2);
                 this.target = null;
-                this.maxLen = 55;
             }
 
             update(t) {
