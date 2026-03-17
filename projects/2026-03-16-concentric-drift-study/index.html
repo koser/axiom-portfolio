@@ -12,23 +12,18 @@
     <script>
         let rings = [];
         let trails = [];
-        let strands = [];
-        let driftX, driftY;
         let pColor, sColor, aColor;
-        let gPhase = 1;
-        let lastStrandTime = 0;
         let lastTrailTime = 0;
-        const numRings = 16;
-        const ptsPerRing = 160;
+        
+        // Increased detail: more rings, closer together
+        const numRings = 36;
+        const ptsPerRing = 140;
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
             pColor = color('#1a1a1c');
             sColor = color('#2d2d30');
             aColor = color('#0a0a0d');
-            
-            driftX = width / 2;
-            driftY = height / 2;
             
             for (let i = 0; i < numRings; i++) {
                 rings.push(new ContourRing(i, numRings));
@@ -39,132 +34,117 @@
         function draw() {
             background('#f8f7f4');
             let t = millis() / 1000;
-            let cycle = t % 120;
             
-            let targetX = width / 2;
-            let targetY = height / 2;
-            let driftSpeed = 0;
-            
-            // Phase Logic
-            if (cycle < 30) {
-                gPhase = 1;
-                driftSpeed = 0;
-            } else if (cycle < 75) {
-                gPhase = 2;
-                targetX = width * 0.65;
-                targetY = height * 0.35;
-                driftSpeed = 0.015;
-            } else {
-                gPhase = 3;
-                targetX = width * 0.38;
-                targetY = height * 0.62;
-                let phaseProgress = (cycle - 75) / 45;
-                driftSpeed = 0.02 * (0.5 - 0.5 * cos(phaseProgress * TWO_PI)); // Accel/Decel
+            // Locked center position
+            let cx = width / 2;
+            let cy = height / 2;
+
+            // 1. Calculate and update next frame states for all rings
+            for (let r of rings) {
+                r.update(t, cx, cy, numRings);
             }
 
-            // Apply Drift & Micro-wobble
-            driftX = lerp(driftX, targetX, driftSpeed || 0.001);
-            driftY = lerp(driftY, targetY, driftSpeed || 0.001);
-            
-            let wobbleX = gPhase > 1 ? (noise(t * 0.4) - 0.5) * 4 : 0;
-            let wobbleY = gPhase > 1 ? (noise(t * 0.4 + 100) - 0.5) * 4 : 0;
-            let cx = driftX + wobbleX;
-            let cy = driftY + wobbleY;
-
-            // Manage Ghost Trails
-            if (gPhase > 1 && t - lastTrailTime > 0.2) {
-                let currentPts = rings.map(r => r.getVertices(t, cx, cy));
+            // 2. Capture ghost trail snapshot periodically
+            if (t - lastTrailTime > 0.25) {
+                // Deep copy vertices to freeze them in time
+                let currentPts = rings.map(r => r.cachedPts.map(p => ({x: p.x, y: p.y})));
                 trails.push(new GhostTrail(currentPts, t));
                 lastTrailTime = t;
             }
 
+            // 3. Draw faint shadow trails first (in the background)
             for (let i = trails.length - 1; i >= 0; i--) {
                 if (trails[i].updateAndDraw(t)) trails.splice(i, 1);
             }
 
-            // Manage Disruption Strands
-            let strandInterval = gPhase === 2 ? random(18, 25) : random(12, 15);
-            if (gPhase > 1 && t - lastStrandTime > strandInterval) {
-                let numStrands = gPhase === 2 ? 4 : floor(random(6, 8));
-                for (let i = 0; i < numStrands; i++) {
-                    strands.push(new DisruptionStrand(t, cx, cy, gPhase));
-                }
-                lastStrandTime = t;
-            }
-
-            for (let i = strands.length - 1; i >= 0; i--) {
-                if (strands[i].updateAndDraw(t)) strands.splice(i, 1);
-            }
-
-            // Update & Draw Rings
+            // 4. Draw the active rings on top
             for (let r of rings) {
-                r.updateAndDraw(t, cx, cy);
+                r.draw();
             }
         }
 
         class ContourRing {
             constructor(idx, total) {
                 this.idx = idx;
-                this.baseR = 15 * pow(1.18, idx);
                 this.nOff = idx * 3.7;
-                this.angle = 0;
-                let dir = idx < total / 2 ? 1 : -1;
-                this.baseSpeed = dir * map(idx, 0, total - 1, 9, 4.8); // deg/sec
-                this.lastShudder = -999;
+                this.angle = random(TWO_PI);
+                
+                // Each snake has a permanent direction of travel
+                this.dir = random() > 0.5 ? 1 : -1;
+                
+                // Independent pacing
+                this.currentSpeed = random(10, 30);
+                this.targetSpeed = this.currentSpeed;
+                this.nextShiftTime = random(2, 6);
+                
                 this.cachedPts = [];
+                this.sw = 0.5;
             }
 
-            getVertices(t, cx, cy) {
-                return this.cachedPts; // Return pre-calculated points for trails
-            }
-
-            updateAndDraw(t, cx, cy) {
-                this.nOff += 0.003 * 60 * 0.016; // Approx per-frame increment
+            update(t, cx, cy, totalRings) {
+                let maxR = Math.min(width, height) * 0.45;
+                this.baseR = map(this.idx, 0, totalRings - 1, 20, maxR);
                 
-                if (random() < 0.001 * 60 * 0.016) this.lastShudder = t;
+                // Random shift to a new pace
+                if (t > this.nextShiftTime) {
+                    this.targetSpeed = random(5, 45);
+                    this.nextShiftTime = t + random(4, 9);
+                }
                 
-                let shudderMult = 1;
-                let timeSinceShudder = t - this.lastShudder;
-                if (timeSinceShudder < 0.13) shudderMult = 2;
-                else if (timeSinceShudder < 0.8) shudderMult = 1 + exp(-timeSinceShudder * 6);
-
-                let ampBase = 6, ampVar = 3, rotMult = 1;
-                if (gPhase === 2) { ampBase = 9; ampVar = 5; rotMult = 1.5; }
-                if (gPhase === 3) { ampBase = 13; ampVar = 7; rotMult = 1.2; }
-
-                let noiseAmp = (ampBase + sin(t * TWO_PI / 6 + this.idx * 0.4) * ampVar) * shudderMult;
-                let scaleOsc = 1.0 + sin(t * TWO_PI / 9 + this.idx * 0.6) * 0.055;
+                // Very softly easing the overall tempo
+                this.currentSpeed = lerp(this.currentSpeed, this.targetSpeed, 0.008);
                 
-                let swBase = 1.1;
-                let sw = swBase + sin(t * TWO_PI / 4 + this.idx) * 0.3;
-                if (gPhase === 3 && random() < 0.08) sw += random(-0.4, 0.6);
-
-                let currentSpeed = this.baseSpeed * rotMult;
-                if (gPhase === 3 && this.idx % 3 === 0 && (t * 10) % 20 < 2) currentSpeed = 0;
-                this.angle += radians(currentSpeed * 0.016); // Apply rotation
-
+                // Move snake along its path
+                this.angle += radians(this.currentSpeed * this.dir * 0.016);
+                this.nOff += 0.002; // Slow terrain shift
+                
                 this.cachedPts = [];
-                let noiseScale = gPhase === 3 ? 1.4 : 1.0;
-
-                push();
-                noFill();
-                stroke(red(pColor), green(pColor), blue(pColor), 230);
-                strokeWeight(sw);
-                beginShape();
-                for (let i = 0; i < ptsPerRing; i++) {
+                let noiseAmp = 3 + sin(t * TWO_PI / 12 + this.idx * 0.5) * 2;
+                let scaleOsc = 1.0 + sin(t * TWO_PI / 15 + this.idx * 0.6) * 0.01;
+                
+                // Extremely thin and delicate line weights
+                this.sw = 0.35 + sin(t * TWO_PI / 8 + this.idx) * 0.2;
+                
+                // Snake length is 90% of the full circle
+                let snakePortion = 0.9;
+                let steps = floor(ptsPerRing * snakePortion);
+                
+                for (let i = 0; i <= steps; i++) {
                     let a = (i / ptsPerRing) * TWO_PI;
-                    let nx = cos(a) * 1.5 * noiseScale + this.nOff;
-                    let ny = sin(a) * 1.5 * noiseScale + t * 0.05;
+                    let absA = a + this.angle;
+                    
+                    let nx = cos(absA) * 1.5 + this.nOff;
+                    let ny = sin(absA) * 1.5 + t * 0.02;
                     let disp = (noise(nx, ny, this.idx * 0.3) - 0.5) * 2 * noiseAmp;
                     
                     let r = this.baseR * scaleOsc + disp;
-                    let px = cx + cos(a + this.angle) * r;
-                    let py = cy + sin(a + this.angle) * r;
+                    let px = cx + cos(absA) * r;
+                    let py = cy + sin(absA) * r;
                     
-                    vertex(px, py);
                     this.cachedPts.push({x: px, y: py});
                 }
-                endShape(CLOSE);
+            }
+
+            draw() {
+                push();
+                noFill();
+                stroke(red(pColor), green(pColor), blue(pColor), 230);
+                strokeWeight(this.sw);
+                
+                beginShape();
+                for (let p of this.cachedPts) {
+                    vertex(p.x, p.y);
+                }
+                endShape(); // Intentional unclosed shape for snake look
+                
+                // Tiny accent at the "head" of the moving snake
+                let headIdx = this.dir > 0 ? this.cachedPts.length - 1 : 0;
+                let p = this.cachedPts[headIdx];
+                if (p) {
+                    fill(aColor);
+                    noStroke();
+                    ellipse(p.x, p.y, this.sw * 2.5);
+                }
                 pop();
             }
         }
@@ -177,71 +157,27 @@
 
             updateAndDraw(t) {
                 let age = t - this.birth;
-                if (age > 9) return true;
+                if (age > 4.5) return true; // Trail expires after 4.5s
 
-                let maxAlpha = gPhase === 3 ? 20 : 15;
-                let alpha = map(age, 0, 9, maxAlpha, 0);
+                let maxAlpha = 22; // Faint shadow markings
+                let alpha = map(age, 0, 4.5, maxAlpha, 0);
 
                 noFill();
                 stroke(red(sColor), green(sColor), blue(sColor), alpha);
-                strokeWeight(0.8);
+                strokeWeight(0.2); // Extremely delicate shadows
                 
                 for (let pts of this.shapes) {
                     beginShape();
                     for (let p of pts) vertex(p.x, p.y);
-                    endShape(CLOSE);
+                    endShape();
                 }
-                return false;
-            }
-        }
-
-        class DisruptionStrand {
-            constructor(t, cx, cy, phase) {
-                this.birth = t;
-                let a = phase === 2 ? radians(random(25, 65)) : radians(random(60, 85));
-                if (random() > 0.5) a += PI;
-                
-                let len = random(120, 300);
-                this.sx = cx + random(-50, 50);
-                this.sy = cy + random(-50, 50);
-                this.ex = this.sx + cos(a) * len;
-                this.ey = this.sy + sin(a) * len;
-
-                let perp = a + HALF_PI;
-                let cpDist = random(40, 100);
-                this.cx1 = this.sx + cos(a) * len * 0.3 + cos(perp) * cpDist * random(-1, 1);
-                this.cy1 = this.sy + sin(a) * len * 0.3 + sin(perp) * cpDist * random(-1, 1);
-                this.cx2 = this.sx + cos(a) * len * 0.7 + cos(perp) * cpDist * random(-1, 1);
-                this.cy2 = this.sy + sin(a) * len * 0.7 + sin(perp) * cpDist * random(-1, 1);
-                
-                this.sw = random(0.3, 0.5);
-                this.maxA = phase === 2 ? random(60, 90) : random(80, 110);
-                this.hold = phase === 2 ? 1.0 : 1.5;
-            }
-
-            updateAndDraw(t) {
-                let age = t - this.birth;
-                let fade = 1.5;
-                if (age > this.hold + fade) return true;
-
-                let alpha = this.maxA;
-                if (age > this.hold) {
-                    alpha = map(age, this.hold, this.hold + fade, this.maxA, 0);
-                }
-
-                noFill();
-                stroke(red(aColor), green(aColor), blue(aColor), alpha);
-                strokeWeight(this.sw);
-                bezier(this.sx, this.sy, this.cx1, this.cy1, this.cx2, this.cy2, this.ex, this.ey);
-                return false;
+                return false; // Keep alive
             }
         }
 
         function windowResized() {
             resizeCanvas(windowWidth, windowHeight);
-            driftX = width / 2;
-            driftY = height / 2;
-            trails = [];
+            trails = []; // Clear trails to prevent off-center smudging during resize
         }
     </script>
 </head>
