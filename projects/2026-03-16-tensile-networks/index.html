@@ -12,44 +12,6 @@
       font-family: 'Courier New', Courier, monospace;
     }
     canvas { display: block; }
-    
-    #ui-panel {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      background: rgba(250, 250, 248, 0.85);
-      border: 1px solid #ebebe8;
-      padding: 16px;
-      border-radius: 6px;
-      color: #0d0d0d;
-      font-size: 11px;
-      backdrop-filter: blur(4px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      width: 180px;
-      z-index: 10;
-    }
-
-    .slider-group {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
-
-    .slider-header {
-      display: flex;
-      justify-content: space-between;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    input[type="range"] {
-      width: 100%;
-      accent-color: #0d0d0d;
-      cursor: pointer;
-    }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
@@ -72,40 +34,6 @@
 </div>
 
 
-<div id="ui-panel">
-  <div class="slider-group">
-    <div class="slider-header">
-      <span>Density</span>
-      <span id="densityVal"></span>
-    </div>
-    <input type="range" id="densitySlider" min="10" max="150" value="50">
-  </div>
-  
-  <div class="slider-group">
-    <div class="slider-header">
-      <span>Speed</span>
-      <span id="speedVal"></span>
-    </div>
-    <input type="range" id="speedSlider" min="0.1" max="2.5" step="0.1" value="0.8">
-  </div>
-  
-  <div class="slider-group">
-    <div class="slider-header">
-      <span>Sway</span>
-      <span id="swayVal"></span>
-    </div>
-    <input type="range" id="swaySlider" min="0.0" max="2.0" step="0.1" value="0.5">
-  </div>
-  
-  <div class="slider-group">
-    <div class="slider-header">
-      <span>Wobble</span>
-      <span id="wobbleVal"></span>
-    </div>
-    <input type="range" id="wobbleSlider" min="0.0" max="2.0" step="0.1" value="0.4">
-  </div>
-</div>
-
 <script>
 const palette = {
   bg: '#fafaf8', 
@@ -118,27 +46,17 @@ const palette = {
 let filaments = [];
 let bgLines = [];
 
-// UI and state variables
-let currentDensity;
+// Fixed parameters (formerly controlled by UI sliders)
+let currentDensity = 50;
+const speedMult = 0.8;
+const swayMult = 0.5;
+const wobbleMult = 0.4;
+
 let accumTime = 0;
-let ui = {};
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   noiseSeed(8765);
-  
-  // Cache DOM elements for performance
-  ui.density = document.getElementById('densitySlider');
-  ui.speed = document.getElementById('speedSlider');
-  ui.sway = document.getElementById('swaySlider');
-  ui.wobble = document.getElementById('wobbleSlider');
-  
-  ui.densityVal = document.getElementById('densityVal');
-  ui.speedVal = document.getElementById('speedVal');
-  ui.swayVal = document.getElementById('swayVal');
-  ui.wobbleVal = document.getElementById('wobbleVal');
-
-  currentDensity = parseInt(ui.density.value);
   initSystem(currentDensity);
 }
 
@@ -203,7 +121,7 @@ class Filament {
     }
   }
   
-  draw(t, swayMult, wobbleMult) {
+  draw(t, swayM, wobbleM) {
     let leftPts = [];
     let rightPts = [];
     let centerPts = [];
@@ -224,10 +142,10 @@ class Filament {
       let field2 = noise(nX * 2.5 + 100, nY * 2.5 + 100, nT * 1.5) - 0.5;
       
       // Significantly scaled down base sway values for subtler motion
-      let sway = (field1 * 400 + field2 * 120) * this.z * swayMult;
+      let sway = (field1 * 400 + field2 * 120) * this.z * swayM;
       
       // Scaled down micro wobble
-      let wobble = (noise(this.seed, y * 0.004, t * 0.0003) - 0.5) * 15 * this.z * wobbleMult;
+      let wobble = (noise(this.seed, y * 0.004, t * 0.0003) - 0.5) * 15 * this.z * wobbleM;
       
       let cx = this.baseX + sway + wobble;
       
@@ -248,8 +166,8 @@ class Filament {
       }
       gapData.push(gapWidth);
       
-      let leftWiggle = (noise(this.seed + 1000, ny * 4, nt * 2.5) - 0.5) * 8 * this.z * wobbleMult;
-      let rightWiggle = (noise(this.seed + 2000, ny * 4, nt * 2.5) - 0.5) * 8 * this.z * wobbleMult;
+      let leftWiggle = (noise(this.seed + 1000, ny * 4, nt * 2.5) - 0.5) * 8 * this.z * wobbleM;
+      let rightWiggle = (noise(this.seed + 2000, ny * 4, nt * 2.5) - 0.5) * 8 * this.z * wobbleM;
       
       leftPts.push({x: cx - dynamicWidth/2 + leftWiggle, y: y});
       rightPts.push({x: cx + dynamicWidth/2 + rightWiggle, y: y});
@@ -367,26 +285,9 @@ class Filament {
 }
 
 function draw() {
-  // Update UI text displays
-  ui.densityVal.innerText = ui.density.value;
-  ui.speedVal.innerText = parseFloat(ui.speed.value).toFixed(1) + 'x';
-  ui.swayVal.innerText = parseFloat(ui.sway.value).toFixed(1) + 'x';
-  ui.wobbleVal.innerText = parseFloat(ui.wobble.value).toFixed(1) + 'x';
-
-  // Check if density changed, requiring a rebuild
-  let newDensity = parseInt(ui.density.value);
-  if (newDensity !== currentDensity) {
-    currentDensity = newDensity;
-    initSystem(currentDensity);
-  }
-
   // Accumulate time smoothly based on speed multiplier to prevent jitter
-  let speedMult = parseFloat(ui.speed.value);
   accumTime += deltaTime * speedMult;
   
-  let swayMult = parseFloat(ui.sway.value);
-  let wobbleMult = parseFloat(ui.wobble.value);
-
   background(palette.bg);
   
   // Render ambient background field
@@ -401,7 +302,7 @@ function draw() {
     pop();
   }
   
-  // Render organic pairings governed by the shared noise field and UI modifiers
+  // Render organic pairings governed by the shared noise field
   for(let f of filaments) {
     f.draw(accumTime, swayMult, wobbleMult);
   }
