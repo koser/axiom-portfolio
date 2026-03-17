@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tessellated Flux Membrane</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #EBEBEB;
+      font-family: sans-serif;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG25</span> <span class="ap-ttl">Tessellated Flux Membrane</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>A monochromatic field of organic, pattern-filled cellular forms that continuously subdivide, merge, and exchange textures. The piece explores the tension between rigid geometric patterning (halftone, chevron, grid) and fluid biomorphic boundaries—wobbling membranes containing contradictory interior worlds. Each cell is a micro-composition breathing against its neighbors, creating a shifting landscape of black, white, and gray territories in constant territorial renegotiation.</p></div>
+</div>
+
+<script>
+let cells = [];
+let tendrils = [];
+let particles = [];
+let textures = [];
+let bg1, bg2;
+let phase = 1;
+let lastMergeSplitTime = 35000;
+let lastMouseMove = -8000;
+let mouseIsActive = false;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  bg1 = color('#EBEBEB');
+  bg2 = color('#F0F0F0');
+  
+  generateTextures();
+  
+  // Initialize cells with biased distribution (bottom-left and center)
+  for(let i=0; i<10; i++) {
+    let x, y, r;
+    for(let attempt=0; attempt<50; attempt++) {
+      if (random() > 0.4) {
+        x = random(100, width / 2);
+        y = random(height / 2, height - 100);
+      } else {
+        x = random(100, width - 100);
+        y = random(100, height - 100);
+      }
+      r = random(60, 160);
+      
+      let overlap = false;
+      for(let c of cells) {
+        if(dist(x, y, c.pos.x, c.pos.y) < r + c.r + 20) {
+          overlap = true;
+          break;
+        }
+      }
+      if(!overlap) break;
+    }
+    cells.push(new Cell(x, y, r));
+  }
+}
+
+function draw() {
+  let t = millis();
+  
+  let noiseSpeed = 0.002;
+  let driftDir = createVector(0, 0);
+  
+  if (mouseIsActive && t - lastMouseMove < 8000) {
+    noiseSpeed = map(mouseX, 0, width, 0.0005, 0.008, true);
+    driftDir.y = map(mouseY, 0, height, -0.4, 0.4, true);
+  } else {
+    if (phase >= 3) {
+      driftDir.set(0.6, -0.6); 
+    } else {
+      driftDir.set(0.1, -0.1);
+    }
+  }
+
+  background(lerpColor(bg1, bg2, 0.5 + 0.5 * sin(t * 0.00035)));
+
+  cells.sort((a, b) => b.r - a.r);
+
+  for (let c of cells) {
+    c.update(t, noiseSpeed, driftDir);
+    c.render();
+  }
+
+  for (let i = 0; i < cells.length; i++) {
+    for (let j = i + 1; j < cells.length; j++) {
+      let c1 = cells[i];
+      let c2 = cells[j];
+      let d = p5.Vector.dist(c1.pos, c2.pos);
+      let surfaceD = d - c1.r - c2.r;
+      
+      if (phase >= 2 && surfaceD < 40) {
+        if (random() < 0.03 && tendrils.length < 8) {
+          tendrils.push(new Tendril(c1, c2));
+        }
+        if (surfaceD < 15 && frameCount % 4 === 0) {
+          for(let k=0; k<2; k++) {
+            let mid = p5.Vector.lerp(c1.pos, c2.pos, 0.5);
+            let tangent = createVector(-(c2.pos.y - c1.pos.y), c2.pos.x - c1.pos.x).normalize();
+            let vx = tangent.x * random(0.3, 1.2) * (random() > 0.5 ? 1 : -1);
+            let vy = tangent.y * random(0.3, 1.2) * (random() > 0.5 ? 1 : -1);
+            particles.push(new Particle(mid.x + random(-15, 15), mid.y + random(-15, 15), vx, vy, random() > 0.5 ? '#0A0A0A' : '#7A7A7A'));
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = tendrils.length - 1; i >= 0; i--) {
+    tendrils[i].update();
+    tendrils[i].render();
+    if (tendrils[i].age > tendrils[i].maxAge) tendrils.splice(i, 1);
+  }
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    particles[i].update();
+    particles[i].render();
+    if (particles[i].age > particles[i].maxAge) particles.splice(i, 1);
+  }
+
+  managePhases(t);
+  drawInteractionIndicator(t);
+}
+
+function managePhases(t) {
+  if (t < 15000) {
+    phase = 1;
+  } else if (t < 35000) {
+    if (phase === 1) {
+      phase = 2;
+      triggerSplit();
+      triggerSplit();
+    }
+  } else {
+    if (phase === 2) {
+      phase = 3;
+      lastMergeSplitTime = t;
+    }
+    if (t - lastMergeSplitTime > random(8000, 12000)) {
+      lastMergeSplitTime = t;
+      if (random() < 0.5) triggerSplit();
+      else triggerMerge();
+    }
+  }
+}
+
+function triggerSplit() {
+  if (cells.length > 15) return;
+  let candidates = cells.filter(c => c.targetR > 100);
+  if (candidates.length === 0) return;
+  let p = random(candidates);
+  p.targetR = p.r * 0.6;
+  
+  let child = new Cell(p.pos.x + random(-40, 40), p.pos.y + random(-40, 40), p.targetR);
+  child.texId = p.texId;
+  child.angle = p.angle + HALF_PI;
+  cells.push(child);
+}
+
+function triggerMerge() {
+  if (cells.length < 6) return;
+  let minDist = Infinity;
+  let pair = null;
+  for (let i = 0; i < cells.length; i++) {
+    for (let j = i + 1; j < cells.length; j++) {
+      let d = p5.Vector.dist(cells[i].pos, cells[j].pos);
+      if (d < minDist) {
+        minDist = d;
+        pair = [i, j];
+      }
+    }
+  }
+  if (pair) {
+    let c1 = cells[pair[0]];
+    let c2 = cells[pair[1]];
+    c1.targetR = constrain(sqrt(c1.r * c1.r + c2.r * c2.r), 50, 220);
+    cells.splice(pair[1], 1);
+  }
+}
+
+class Cell {
+  constructor(x, y, r) {
+    this.pos = createVector(x, y);
+    this.vel = createVector(0, 0);
+    this.r = r;
+    this.targetR = r;
+    this.texId = floor(random(4));
+    this.angle = random(TWO_PI);
+    this.seed = random(10000);
+    this.vertices = [];
+    this.numV = 16;
+    for (let i = 0; i < this.numV + 3; i++) {
+      this.vertices.push(createVector());
+    }
+  }
+  
+  update(t, noiseSpeed, driftDir) {
+    this.r = lerp(this.r, this.targetR, 0.05);
+    this.r = constrain(this.r, 40, 250);
+    
+    let rndX = (noise(this.seed, t * 0.0005) - 0.5) * 1.5;
+    let rndY = (noise(this.seed + 100, t * 0.0005) - 0.5) * 1.5;
+    
+    this.vel.x = lerp(this.vel.x, rndX + driftDir.x, 0.05);
+    this.vel.y = lerp(this.vel.y, rndY + driftDir.y, 0.05);
+    
+    for (let c of cells) {
+      if (c !== this) {
+        let d = p5.Vector.dist(this.pos, c.pos);
+        let minD = this.r + c.r + 15; 
+        if (d < minD && d > 0.1) {
+          let force = (minD - d) * 0.02;
+          let dir = p5.Vector.sub(this.pos, c.pos).normalize().mult(force);
+          this.vel.add(dir);
+        }
+      }
+    }
+    
+    this.pos.add(this.vel);
+    
+    if (this.pos.x < 80) this.vel.x += 0.4;
+    if (this.pos.x > width - 80) this.vel.x -= 0.4;
+    if (this.pos.y < 80) this.vel.y += 0.4;
+    if (this.pos.y > height - 80) this.vel.y -= 0.4;
+    
+    let amp = map(sin(t * 0.008 + this.seed), -1, 1, 8, 25);
+    for (let i = 0; i < this.numV; i++) {
+      let ang = map(i, 0, this.numV, 0, TWO_PI);
+      let nx = cos(ang) * 1.5;
+      let ny = sin(ang) * 1.5;
+      let nVal = noise(nx + this.seed, ny + this.seed, t * noiseSpeed);
+      let rmod = this.r + map(nVal, 0, 1, -amp, amp);
+      this.vertices[i].set(cos(ang) * rmod, sin(ang) * rmod);
+    }
+    this.vertices[this.numV].set(this.vertices[0]);
+    this.vertices[this.numV + 1].set(this.vertices[1]);
+    this.vertices[this.numV + 2].set(this.vertices[2]);
+  }
+  
+  render() {
+    push();
+    translate(this.pos.x, this.pos.y);
+    
+    drawingContext.save();
+    beginShape();
+    for (let v of this.vertices) curveVertex(v.x, v.y);
+    endShape();
+    drawingContext.clip();
+    
+    push();
+    rotate(this.angle);
+    imageMode(CENTER);
+    image(textures[this.texId], 0, 0);
+    pop();
+    
+    drawingContext.restore();
+    
+    noFill();
+    stroke('#0A0A0A');
+    strokeWeight(2);
+    beginShape();
+    for (let v of this.vertices) curveVertex(v.x, v.y);
+    endShape();
+    pop();
+  }
+}
+
+class Tendril {
+  constructor(c1, c2) {
+    this.c1 = c1;
+    this.c2 = c2;
+    this.age = 0;
+    this.maxAge = random(90, 180);
+  }
+  update() {
+    this.age++;
+  }
+  render() {
+    let prog = min(this.age / 45, 1);
+    let alpha = map(this.age, this.maxAge - 30, this.maxAge, 255, 0, true);
+    let thick = 1 + 2 * sin(millis() * 0.002);
+    
+    let ang = atan2(this.c2.pos.y - this.c1.pos.y, this.c2.pos.x - this.c1.pos.x);
+    let sp = createVector(this.c1.pos.x + cos(ang) * this.c1.r, this.c1.pos.y + sin(ang) * this.c1.r);
+    let ep = createVector(this.c2.pos.x + cos(ang + PI) * this.c2.r, this.c2.pos.y + sin(ang + PI) * this.c2.r);
+    
+    let currentEp = p5.Vector.lerp(sp, ep, prog);
+    let cp1 = createVector(sp.x + cos(ang - HALF_PI) * 40, sp.y + sin(ang - HALF_PI) * 40);
+    let cp2 = createVector(currentEp.x + cos(ang + HALF_PI) * 40, currentEp.y + sin(ang + HALF_PI) * 40);
+    
+    noFill();
+    stroke(10, 10, 10, alpha);
+    strokeWeight(thick * prog);
+    bezier(sp.x, sp.y, cp1.x, cp1.y, cp2.x, cp2.y, currentEp.x, currentEp.y);
+  }
+}
+
+class Particle {
+  constructor(x, y, vx, vy, colHex) {
+    this.pos = createVector(x, y);
+    this.vel = createVector(vx, vy);
+    this.age = 0;
+    this.maxAge = random(120, 200);
+    this.trail = [];
+    this.c = color(colHex);
+  }
+  update() {
+    this.pos.add(this.vel);
+    this.trail.push(this.pos.copy());
+    if (this.trail.length > 8) this.trail.shift();
+    this.age++;
+  }
+  render() {
+    let baseAlpha = pow(0.96, this.age) * 255;
+    noStroke();
+    for (let i = 0; i < this.trail.length; i++) {
+      let stepBack = this.trail.length - 1 - i;
+      let a = baseAlpha * pow(0.65, stepBack);
+      this.c.setAlpha(a);
+      fill(this.c);
+      circle(this.trail[i].x, this.trail[i].y, map(stepBack, 0, 8, 5, 1));
+    }
+  }
+}
+
+function generateTextures() {
+  let s = 800;
+  
+  let pg0 = createGraphics(s, s);
+  pg0.background('#EBEBEB');
+  pg0.fill('#0A0A0A');
+  pg0.noStroke();
+  for(let y=0; y<=s; y+=14) {
+    for(let x=0; x<=s; x+=14) {
+      pg0.circle(x, y, random(5, 10));
+    }
+  }
+  textures.push(pg0);
+  
+  let pg1 = createGraphics(s, s);
+  pg1.background('#0A0A0A');
+  pg1.stroke('#FFFFFF');
+  pg1.strokeWeight(3);
+  pg1.noFill();
+  for(let y=-200; y<=s+200; y+=16) {
+    pg1.beginShape();
+    for(let x=0; x<=s; x+=25) {
+      pg1.vertex(x, y + (x % 50 === 0 ? 15 : -15));
+    }
+    pg1.endShape();
+  }
+  textures.push(pg1);
+  
+  let pg2 = createGraphics(s, s);
+  pg2.background('#EBEBEB');
+  pg2.stroke('#7A7A7A');
+  pg2.strokeWeight(2);
+  for(let i=-s; i<=s*2; i+=10) {
+    pg2.line(i, 0, i+s, s);
+    pg2.line(i+s, 0, i, s);
+  }
+  textures.push(pg2);
+  
+  let pg3 = createGraphics(s, s);
+  pg3.background('#7A7A7A');
+  pg3.stroke('#0A0A0A');
+  pg3.strokeWeight(1.5);
+  pg3.noFill();
+  for(let i=0; i<60; i++) {
+    pg3.bezier(random(s), random(s), random(s), random(s), random(s), random(s), random(s), random(s));
+  }
+  textures.push(pg3);
+}
+
+function drawInteractionIndicator(t) {
+  let alpha = map(t, 0, 4000, 180, 0, true);
+  if (alpha <= 0) return;
+  push();
+  noStroke();
+  fill(10, 10, 10, alpha);
+  textAlign(CENTER, TOP);
+  textSize(12);
+  text("MOUSE: MOVE TO DISTORT, CLICK TO REPULSE", width / 2, 20);
+  pop();
+}
+
+function mouseMoved() {
+  lastMouseMove = millis();
+  mouseIsActive = true;
+}
+
+function mousePressed() {
+  for (let c of cells) {
+    let d = dist(mouseX, mouseY, c.pos.x, c.pos.y);
+    if (d < 250) {
+      let force = constrain(250 - d, 0, 250) / 50;
+      let dir = p5.Vector.sub(c.pos, createVector(mouseX, mouseY)).normalize();
+      c.vel.add(p5.Vector.mult(dir, force * 5));
+    }
+  }
+  for (let i = 0; i < 80; i++) {
+    particles.push(new Particle(mouseX, mouseY, random(-2.5, 2.5), random(-2.5, 2.5), random() > 0.5 ? '#0A0A0A' : '#7A7A7A'));
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+</body>
+</html>
