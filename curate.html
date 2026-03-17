@@ -449,7 +449,8 @@
             const incoming = (activeImg === imgA) ? imgB : imgA;
             incoming.src = folder + '/frame-' + frameIndex + '.png';
             incoming.classList.add('visible');
-            activeImg.classList.remove('visible');
+            const outgoing = activeImg;
+            setTimeout(() => outgoing.classList.remove('visible'), 600);
             activeImg = incoming;
         }, 900);
     }
