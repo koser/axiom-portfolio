@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Concentric Dissolution Field</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #f8f8f8;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<style>
+#axiom-pill{position:fixed;top:16px;left:16px;z-index:9999;background:rgba(0,0,0,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:24px;padding:7px 14px;cursor:pointer;max-width:340px;transition:all .3s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
+#axiom-pill.expanded{border-radius:14px;max-width:420px;padding:14px 18px}
+.ap-hdr{display:flex;align-items:center;gap:6px}
+.ap-id{font-size:11px;color:#888;font-family:monospace;letter-spacing:.05em;flex-shrink:0}
+.ap-ttl{font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-x{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 2px;margin-left:auto;line-height:1;flex-shrink:0}.ap-x:hover{color:#fff}
+.ap-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);max-height:50vh;overflow-y:auto}
+#axiom-pill.expanded .ap-body{display:block}
+.ap-body p{font-size:11.5px;color:#999;line-height:1.55;margin:0}
+.ap-body::-webkit-scrollbar{width:4px}.ap-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+<div id="axiom-pill" onclick="if(!event.target.classList.contains('ap-x'))this.classList.toggle('expanded')">
+<div class="ap-hdr"><span class="ap-id">AG26</span> <span class="ap-ttl">Concentric Dissolution Field</span><button class="ap-x" onclick="event.stopPropagation();window.location.href='../../';">&times;</button></div>
+<div class="ap-body"><p>A system of nested contour lines undergoes progressive fragmentation, where rigid circular forms splinter into organic, flowing tendrils that migrate across the canvas before reconstituting. The piece embodies the tension between mathematical precision and organic decay, echoing the moodboard's stark black-on-white linework and the way structured rings break into fluid, almost biological appendages.</p></div>
+</div>
+
+  <script>
+    let rings = [];
+    let newRings = [];
+    let particles = [];
+    let tendrils = [];
+    let shockwaves = [];
+    let reconCenter;
+    let globalRotation = 0;
+    let t = 0;
+    let phase = 1;
+    let speedMult = 1;
+    let lastMouseTime = 0;
+    let pmx = 0, pmy = 0;
+
+    let nextSpawnTime = 45000;
+    let ringRadii = [80, 120, 160, 200, 240, 280, 320, 360];
+    let ringIdx = 0;
+
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      background(248);
+      noiseSeed(999);
+      
+      let cx = width / 2;
+      let cy = height / 2;
+      reconCenter = createVector(cx + 80, cy + 40);
+      
+      for (let i = 0; i < 10; i++) {
+        rings.push(new Ring(cx, cy, 80 + i * 38, random(1.8, 3.2), i));
+      }
+    }
+
+    function getFlowVector(x, y, time) {
+      let scl = 0.008;
+      let n = noise(x * scl, y * scl, time * 0.0003);
+      let angle = map(n, 0, 1, 0, TWO_PI * 2) + globalRotation;
+      let mag = map(noise(x * scl + 100, y * scl + 100, time * 0.0003), 0, 1, 0.5, 2.5) * speedMult;
+      return p5.Vector.fromAngle(angle, mag);
+    }
+
+    class Ring {
+      constructor(cx, cy, r, weight, idx, isNew = false, spawnTime = 0) {
+        this.cx = cx; this.cy = cy;
+        this.r = r; this.baseWeight = weight;
+        this.idx = idx;
+        this.pts = [];
+        this.isNew = isNew;
+        this.spawnTime = spawnTime;
+        for (let i = 0; i < 32; i++) {
+          this.pts.push({
+            a: i * TWO_PI / 32,
+            noiseOffset: random(1000),
+            detached: false,
+            disp: 0
+          });
+        }
+      }
+
+      update(t, threshold, phase) {
+        let toSpawn = [];
+        let breath = sin(t * 0.0009 + this.idx * 0.4) * 12;
+        let maxNoise = phase === 1 ? map(t, 0, 12000, 0, 8, true) : 8;
+        
+        if (phase === 1 && t > 6000 && this.idx === 0) {
+          for (let i = 0; i < this.pts.length; i += 6) {
+            if (!this.pts[i].detached && random() < 0.02) {
+              this.pts[i].detached = true;
+              let p = this.pts[i];
+              let rad = this.r + breath + p.disp;
+              toSpawn.push(new Particle(this.cx + cos(p.a) * rad, this.cy + sin(p.a) * rad));
+            }
+          }
+        }
+
+        for (let p of this.pts) {
+          if (p.detached) continue;
+          let n = noise(p.noiseOffset + t * 0.0001) * maxNoise;
+          p.disp = n;
+          
+          if (phase >= 2 && !this.isNew) {
+            if (noise(p.noiseOffset + t * 0.0005) > threshold && random() < 0.05) {
+              p.detached = true;
+              let px = this.cx + cos(p.a) * (this.r + breath + n);
+              let py = this.cy + sin(p.a) * (this.r + breath + n);
+              toSpawn.push(new Particle(px, py));
+            }
+          }
+        }
+        return toSpawn;
+      }
+
+      draw(t) {
+        push();
+        translate(this.cx, this.cy);
+        let breath = sin(t * 0.0009 + this.idx * 0.4) * 12;
+        let w = this.baseWeight + sin(t * 0.00138 + this.idx) * 0.6;
+        if (this.isNew) w = map(constrain(t - this.spawnTime, 0, 4000), 0, 4000, 0.8, 2.8);
+        strokeWeight(w);
+        stroke(13, 13, 13);
+        noFill();
+        
+        let segs = [];
+        let cur = [];
+        for (let p of this.pts) {
+          if (!p.detached) cur.push(p);
+          else if (cur.length > 0) { segs.push(cur); cur = []; }
+        }
+        if (cur.length > 0) segs.push(cur);
+        
+        let closed = false;
+        if (segs.length > 1 && !this.pts[0].detached && !this.pts[31].detached) {
+          segs[0] = segs[segs.length - 1].concat(segs[0]);
+          segs.pop();
+        } else if (segs.length === 1 && cur.length === 32) {
+          closed = true;
+        }
+        
+        for (let seg of segs) {
+          if (seg.length < 2) continue;
+          beginShape();
+          if (closed) {
+            for (let i = 0; i < 35; i++) {
+              let p = seg[i % 32];
+              let rad = this.r + breath + p.disp;
+              curveVertex(cos(p.a) * rad, sin(p.a) * rad);
+            }
+          } else {
+            for (let i = 0; i < seg.length; i++) {
+              let p = seg[i];
+              let rad = this.r + breath + p.disp;
+              let x = cos(p.a) * rad, y = sin(p.a) * rad;
+              curveVertex(x, y);
+              if (i === 0 || i === seg.length - 1) curveVertex(x, y);
+            }
+          }
+          endShape();
+        }
+        pop();
+      }
+    }
+
+    class Particle {
+      constructor(x, y, vx = 0, vy = 0, isMini = false) {
+        this.pos = createVector(x, y);
+        this.vel = createVector(vx, vy);
+        this.history = [];
+        this.isMini = isMini;
+        this.life = isMini ? random(3000, 5000) : random(15000, 25000);
+        this.maxLife = this.life;
+        this.rot = 0;
+        this.rotSpeed = random(0.5, 3) * (PI / 180);
+        this.pts = [];
+        if (!isMini) {
+          let nPts = floor(random(5, 10));
+          for (let i = 0; i < nPts; i++) {
+            let a = i * TWO_PI / nPts;
+            let r = random(3, 12);
+            this.pts.push(createVector(cos(a) * r, sin(a) * r));
+          }
+        }
+      }
+
+      update(t, phase, reconCenter) {
+        let flow = getFlowVector(this.pos.x, this.pos.y, t);
+        this.vel.add(flow.mult(0.1));
+        this.vel.mult(0.98);
+        
+        if (phase === 3 && reconCenter) {
+          let d = dist(this.pos.x, this.pos.y, reconCenter.x, reconCenter.y);
+          if (d > 0) {
+            let force = p5.Vector.sub(reconCenter, this.pos).setMag(800 / (d * d));
+            this.vel.add(force.limit(5));
+          }
+        }
+        
+        for (let sw of shockwaves) {
+          let d = dist(this.pos.x, this.pos.y, sw.x, sw.y);
+          if (d < sw.r) {
+            let f = p5.Vector.sub(this.pos, createVector(sw.x, sw.y)).setMag(sw.str * (1 - sw.age / sw.maxAge) * 0.1);
+            this.vel.add(f);
+          }
+        }
+
+        this.pos.add(p5.Vector.mult(this.vel, speedMult));
+        this.rot += this.rotSpeed * speedMult;
+        this.life -= deltaTime * speedMult;
+        
+        if (frameCount % 3 === 0) {
+          this.history.push(this.pos.copy());
+          if (this.history.length > 8) this.history.shift();
+        }
+        
+        return this.life <= 0;
+      }
+
+      draw() {
+        let alpha = this.life < 3000 ? map(this.life, 0, 3000, 0, 0.9) : 0.9;
+        
+        noFill();
+        for (let i = 0; i < this.history.length - 1; i++) {
+          let a = alpha * pow(0.6, this.history.length - i);
+          stroke(58, 58, 58, a * 255);
+          strokeWeight(this.isMini ? 1 : 2);
+          beginShape();
+          vertex(this.history[i].x, this.history[i].y);
+          vertex(this.history[i + 1].x, this.history[i + 1].y);
+          endShape();
+        }
+        
+        if (!this.isMini) {
+          push();
+          translate(this.pos.x, this.pos.y);
+          rotate(this.rot);
+          fill(13, 13, 13, alpha * 255);
+          noStroke();
+          beginShape();
+          for (let p of this.pts) vertex(p.x, p.y);
+          endShape(CLOSE);
+          pop();
+        }
+      }
+    }
+
+    class Tendril {
+      constructor(x, y, t) {
+        this.origin = createVector(x, y);
+        this.segs = [{ pos: this.origin.copy(), w: 4 }];
+        this.targetCount = floor(random(40, 80));
+        this.spawnTime = t;
+        this.phase = 0; 
+        this.growDur = random(1500, 3500);
+        this.curlAngle = 0;
+      }
+
+      update(t, p3) {
+        let age = t - this.spawnTime;
+        if (this.phase === 0) {
+          if (age > this.growDur || this.segs.length >= this.targetCount) {
+            this.phase = 1;
+          } else {
+            let last = this.segs[this.segs.length - 1];
+            let flow = getFlowVector(last.pos.x, last.pos.y, t);
+            let nextPos = p5.Vector.add(last.pos, flow.mult(2 * speedMult));
+            let w = map(this.segs.length, 0, this.targetCount, 4, 0.8);
+            this.segs.push({ pos: nextPos, w: w });
+          }
+        } else if (this.phase === 1) {
+          if (p3) this.phase = 2;
+        } else if (this.phase === 2) {
+          this.curlAngle += random(0.8, 2) * (PI / 180) * speedMult;
+          if (random() < 0.25) {
+            let p = random(this.segs).pos;
+            particles.push(new Particle(p.x, p.y, random(-1, 1), random(-1, 1), true));
+          }
+        }
+        
+        for (let sw of shockwaves) {
+          for (let s of this.segs) {
+            let d = dist(s.pos.x, s.pos.y, sw.x, sw.y);
+            if (d < sw.r) {
+              let f = p5.Vector.sub(s.pos, createVector(sw.x, sw.y)).setMag(sw.str * (1 - sw.age / sw.maxAge) * 0.05);
+              s.pos.add(f);
+            }
+          }
+        }
+      }
+
+      draw(t) {
+        if (this.segs.length < 2) return;
+        
+        let pts = [];
+        for (let i = 0; i < this.segs.length; i++) {
+          let s = this.segs[i];
+          let p = s.pos.copy();
+          if (this.phase >= 1) {
+            let w = (noise(i * 0.15, t * 0.001) - 0.5) * 2.4;
+            p.add(w, w);
+          }
+          if (this.phase === 2) {
+            let d = dist(this.origin.x, this.origin.y, p.x, p.y);
+            let a = atan2(p.y - this.origin.y, p.x - this.origin.x);
+            let ca = this.curlAngle * (i / this.segs.length);
+            p.x = this.origin.x + cos(a + ca) * d;
+            p.y = this.origin.y + sin(a + ca) * d;
+          }
+          pts.push({ p: p, w: s.w });
+        }
+        
+        fill(26, 26, 26);
+        noStroke();
+        beginShape();
+        let norms = [];
+        for (let i = 0; i < pts.length; i++) {
+          let n = createVector(0, 0);
+          if (i < pts.length - 1) {
+            let d = p5.Vector.sub(pts[i + 1].p, pts[i].p);
+            n = createVector(-d.y, d.x).normalize().mult(pts[i].w / 2);
+          } else if (i > 0) {
+            n = norms[i - 1];
+          }
+          norms.push(n);
+          vertex(pts[i].p.x + n.x, pts[i].p.y + n.y);
+        }
+        for (let i = pts.length - 1; i >= 0; i--) {
+          vertex(pts[i].p.x - norms[i].x, pts[i].p.y - norms[i].y);
+        }
+        endShape(CLOSE);
+      }
+    }
+
+    function draw() {
+      t = millis();
+      background(248);
+      
+      speedMult = 0.6 + (sin(t * 0.000048) * 0.4 + 0.4) * 0.8;
+      
+      let mouseIdle = t - lastMouseTime;
+      let interactActive = mouseIdle < 3000;
+      
+      let targetRot = interactActive ? map(mouseX, 0, width, -0.15, 0.15, true) : sin(t * 0.001) * 0.08;
+      globalRotation = lerp(globalRotation, targetRot, 0.05);
+      
+      let threshold = interactActive ? map(mouseY, 0, height, 0.75, 0.25, true) : 0.5;
+
+      if (t < 12000) phase = 1;
+      else if (t < 42000) phase = 2;
+      else phase = 3;
+      
+      for (let i = shockwaves.length - 1; i >= 0; i--) {
+        shockwaves[i].age += deltaTime;
+        if (shockwaves[i].age > shockwaves[i].maxAge) shockwaves.splice(i, 1);
+      }
+
+      for (let r of rings) {
+        let newParts = r.update(t, threshold, phase);
+        particles.push(...newParts);
+        r.draw(t);
+      }
+      
+      for (let r of newRings) {
+        r.update(t, 0.99, 1); 
+        r.draw(t);
+      }
+
+      if (phase === 2 && random() < 0.03 && rings.length > 0) {
+        let r = random(rings);
+        let pts = r.pts.filter(p => !p.detached);
+        if (pts.length > 0) {
+          let p = random(pts);
+          let rad = r.r + sin(t * 0.0009 + r.idx * 0.4) * 12 + p.disp;
+          tendrils.push(new Tendril(r.cx + cos(p.a) * rad, r.cy + sin(p.a) * rad, t));
+        }
+      }
+
+      for (let i = tendrils.length - 1; i >= 0; i--) {
+        let ten = tendrils[i];
+        ten.update(t, phase === 3);
+        ten.draw(t);
+        if (ten.phase === 2 && ten.curlAngle > TWO_PI * 2) tendrils.splice(i, 1);
+      }
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        if (p.update(t, phase, reconCenter)) particles.splice(i, 1);
+        else p.draw();
+      }
+      
+      if (phase === 3 && t > nextSpawnTime && ringIdx < ringRadii.length) {
+        let targetR = ringRadii[ringIdx];
+        let closeParts = particles.filter(p => abs(dist(p.pos.x, p.pos.y, reconCenter.x, reconCenter.y) - targetR) < 30);
+        if (closeParts.length > 10) {
+          newRings.push(new Ring(reconCenter.x, reconCenter.y, targetR, 0.8, 100 + ringIdx, true, t));
+          for (let p of closeParts) p.life = min(p.life, 500);
+          ringIdx++;
+          nextSpawnTime = t + 4000;
+        }
+      }
+      
+      drawInteractionIndicator();
+    }
+
+    function mouseMoved() {
+      if (abs(mouseX - pmx) > 2 || abs(mouseY - pmy) > 2) {
+        lastMouseTime = millis();
+        pmx = mouseX; pmy = mouseY;
+      }
+    }
+
+    function mousePressed() {
+      lastMouseTime = millis();
+      shockwaves.push({ x: mouseX, y: mouseY, r: 200, str: random(20, 40), age: 0, maxAge: 1500 });
+      for (let i = 0; i < 60; i++) {
+        let a = i * TWO_PI / 60;
+        let mag = random(8, 14);
+        particles.push(new Particle(mouseX, mouseY, cos(a) * mag, sin(a) * mag));
+      }
+    }
+
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+      let cx = width / 2; let cy = height / 2;
+      reconCenter = createVector(cx + 80, cy + 40);
+      for (let r of rings) { r.cx = cx; r.cy = cy; }
+      for (let r of newRings) { r.cx = reconCenter.x; r.cy = reconCenter.y; }
+    }
+
+    function drawInteractionIndicator() {
+      let mt = millis();
+      if (mt > 4000) return;
+      let alpha = map(mt, 0, 4000, 180, 0);
+      push();
+      translate(width / 2, 20);
+      fill(13, 13, 13, alpha);
+      noStroke();
+      
+      beginShape();
+      vertex(-6, -8); vertex(6, -8); vertex(6, 4);
+      vertex(0, 10);  vertex(-6, 4);
+      endShape(CLOSE);
+      
+      fill(248, 248, 248, alpha);
+      beginShape();
+      vertex(-2, -5); vertex(2, -5); vertex(2, 0); vertex(-2, 0);
+      endShape(CLOSE);
+      pop();
+    }
+  </script>
+</body>
+</html>
