@@ -38,7 +38,9 @@
 <script>
     /**
      * Vertical Erosion Field
-     * A p5.js generative artwork.
+     * A generative artwork where rigid vertical structures undergo localized 
+     * structural failure, shattering into fragments while the system dynamically
+     * heals and reforms to maintain spatial balance.
      */
 
     const PALETTE = {
@@ -50,39 +52,50 @@
 
     let bands = [];
     let fragments = [];
-    let t0 = 0;
-    let lastSpawnTime = 0;
-    let lastSweepTime = 0;
-    let lastMouseTime = 0;
-    let mouseXRatio = 0.5;
-    let mouseYRatio = 0.5;
     
-    const MAX_FRAGS = 450;
     let cBg, cPri, cSec, cAcc;
+    let bandsTargetCount = 0;
+    
+    let lastShatterTime = 0;
+    let shatterInterval = 3000;
+    let lastBandSpawnTime = 0;
+
+    const MAX_FRAGS = 400;
 
     function setup() {
         createCanvas(windowWidth, windowHeight);
         frameRate(60);
+        noStroke();
         
         cBg = color(PALETTE.bg);
         cPri = color(PALETTE.pri);
         cSec = color(PALETTE.sec);
         cAcc = color(PALETTE.acc);
         
-        initBands();
-        t0 = millis();
-        lastMouseTime = millis();
-        noStroke();
+        initSystem();
     }
 
-    function initBands() {
+    function initSystem() {
         bands = [];
-        let numBands = floor(random(18, 25));
-        let spacing = width / numBands;
-        for (let i = 0; i < numBands; i++) {
-            let x = i * spacing + spacing / 2;
-            let w = random(40, 80);
-            bands.push(new VerticalBand(x, w, i));
+        fragments = [];
+        // Ensure bands never fill the canvas. One band per ~160px width.
+        // Even at max width (40px), this covers only 25% of the screen.
+        bandsTargetCount = max(3, floor(width / 160));
+        
+        for (let i = 0; i < bandsTargetCount; i++) {
+            let w = random(15, 40);
+            bands.push(new VerticalBand(0, w));
+        }
+        recalculateBands(true);
+        lastShatterTime = millis();
+    }
+
+    function recalculateBands(instant = false) {
+        bands.sort((a, b) => a.x - b.x);
+        let spacing = width / (bands.length + 1);
+        for (let i = 0; i < bands.length; i++) {
+            bands[i].targetX = spacing * (i + 1);
+            if (instant) bands[i].x = bands[i].targetX;
         }
     }
 
@@ -90,75 +103,49 @@
         let t = millis();
         background(cBg);
 
-        // Determine Phase (1: 0-15s, 2: 15-45s, 3: 45s+)
-        let phaseT = (t - t0) % 90000; // Loop every 90s for continuity
-        let phase = 1;
-        if (phaseT > 15000 && phaseT <= 45000) phase = 2;
-        else if (phaseT > 45000) phase = 3;
-
-        // Autonomous mode fallback
-        let isAuto = (t - lastMouseTime > 5000);
-        if (isAuto) {
-            mouseXRatio = map(noise(t * 0.0005, 1000), 0, 1, 0.2, 0.8);
-            mouseYRatio = map(noise(t * 0.0005, 2000), 0, 1, 0.2, 0.8);
+        // System Evolution: Shatter a random band periodically
+        if (t - lastShatterTime > shatterInterval && bands.length > 2) {
+            let idx = floor(random(bands.length));
+            shatterBand(idx, t);
+            lastShatterTime = t;
+            shatterInterval = random(2500, 5000);
         }
 
-        // Noise Amplitude calculation
-        let noiseAmp = phase === 1 ? map(sin(t * 0.001), -1, 1, 2, 8) : (phase === 2 ? 10 : 7);
-        if (t - lastMouseTime > 3000 && !isAuto) {
-            // Gradually increase noise when still
-            let stillness = min((t - lastMouseTime - 3000) / 2000, 1);
-            noiseAmp = lerp(noiseAmp, 18, stillness);
+        // System Evolution: Replenish missing bands
+        if (bands.length < bandsTargetCount && t - lastBandSpawnTime > 1500) {
+            spawnNewBand();
+            lastBandSpawnTime = t;
         }
 
-        // Gap oscillation (8s period)
-        let gapOsc = sin(t * TWO_PI / 8000) * 15;
-
-        // Draw Shadow Accents
+        // Draw Shadow Layer (creates depth/void illusion behind bands)
         fill(cAcc);
         for (let b of bands) {
-            rect(b.x - b.w/2 + 5, 0, b.w, height);
+            beginShape();
+            vertex(b.x - b.w / 2 + 12, -20);
+            vertex(b.x + b.w / 2 + 12, -20);
+            vertex(b.x + b.w / 2 + 12, height + 20);
+            vertex(b.x - b.w / 2 + 12, height + 20);
+            endShape(CLOSE);
         }
 
-        // Draw Bands
+        // Update and Draw Primary Bands
         fill(cPri);
         for (let b of bands) {
-            b.updateAndDraw(t, phase, noiseAmp, gapOsc);
-        }
-
-        // Handle Spawning
-        let spawnInterval = phase === 1 ? 1200 : (phase === 2 ? 800 : 1200);
-        if (t - lastSpawnTime > spawnInterval) {
-            let baseCount = map(mouseYRatio, 0, 1, 5, 60);
-            let count = phase === 2 ? baseCount * 1.5 : (phase === 3 ? 15 : baseCount);
-            
-            for (let i = 0; i < count; i++) {
-                spawnFragment(t, phase, false);
-            }
-            lastSpawnTime = t;
-        }
-
-        // Phase 3 Sweep
-        if (phase === 3 && t - lastSweepTime > 12000) {
-            let sweepCount = random(80, 120);
-            for (let i = 0; i < sweepCount; i++) {
-                spawnFragment(t, 3, true);
-            }
-            lastSweepTime = t;
+            b.update();
+            b.draw(t);
         }
 
         // Update and Draw Fragments
         for (let i = fragments.length - 1; i >= 0; i--) {
             let f = fragments[i];
-            f.update(t);
-            f.draw(t, isAuto);
-            
+            f.update();
+            f.draw(t);
             if (t - f.birthTime > f.lifeSpan) {
                 fragments.splice(i, 1);
             }
         }
 
-        // Cap array to prevent performance death spiral
+        // Cap array to maintain 60fps
         while (fragments.length > MAX_FRAGS) {
             fragments.shift();
         }
@@ -166,137 +153,111 @@
         drawInteractionIndicator(t);
     }
 
-    function spawnFragment(t, phase, isSweep) {
-        let x, y, vx, vy, type;
-        let life = random(3000, 7500); // 180 to 450 frames approx
+    function shatterBand(index, t) {
+        let b = bands[index];
+        // Fragment count based on band thickness to feel physically grounded
+        let numFrags = floor(map(b.w, 15, 40, 30, 80)); 
+        let step = height / numFrags;
         
-        if (isSweep) {
-            let isLeft = random() > 0.5;
-            x = isLeft ? -20 : width + 20;
-            y = height / 2 + (noise(t * 0.01, fragments.length) - 0.5) * 100;
-            vx = (isLeft ? 1 : -1) * 2.2;
-            vy = random(-0.2, 0.2);
-            type = 'edge';
-        } else if (phase === 3 && random() < 0.8) {
-            // Edge spawn (80% in Phase 3)
-            let isLeft = random() < 0.5;
-            x = isLeft ? -10 : width + 10;
-            y = random(height);
-            
-            // Find nearest band to target
-            let nearest = bands[0];
-            let minDist = width * 2;
-            for (let b of bands) {
-                let d = abs(b.x - x);
-                if (d < minDist) { minDist = d; nearest = b; }
-            }
-            
-            let angle = atan2(0, nearest.x - x); // Horizontal targeting
-            let speed = random(2.0, 3.5);
-            vx = cos(angle) * speed;
-            vy = random(-0.2, 0.2);
-            type = 'edge';
-        } else {
-            // Band spawn
-            let b = random(bands);
-            if (!b) return;
-            x = b.x + random(-b.w / 2, b.w / 2);
-            y = random(height);
-            let flowRight = random() > mouseXRatio;
-            vx = (flowRight ? 1 : -1) * random(0.8, 2.5);
-            vy = random(-0.2, 0.2);
-            type = 'band';
-            if (phase === 1) life = random(2000, 4000);
+        for (let i = 0; i < numFrags; i++) {
+            let py = i * step + random(-15, 15);
+            let px = b.x + random(-b.w / 2, b.w / 2);
+            // Burst primarily horizontally
+            let vx = random(1.5, 5.0) * (random() > 0.5 ? 1 : -1);
+            let vy = random(-1.0, 1.0);
+            let life = random(2000, 4500);
+            fragments.push(new ErosionFragment(px, py, vx, vy, life, t));
         }
         
-        fragments.push(new ErosionFragment(x, y, vx, vy, type, life, t));
+        bands.splice(index, 1);
+        recalculateBands();
     }
 
-    function mouseMoved() {
-        mouseXRatio = constrain(mouseX / width, 0, 1);
-        mouseYRatio = constrain(mouseY / height, 0, 1);
-        lastMouseTime = millis();
+    function spawnNewBand() {
+        let spawnLeft = random() > 0.5;
+        let startX = spawnLeft ? -100 : width + 100;
+        let w = random(15, 40);
+        bands.push(new VerticalBand(startX, w));
+        recalculateBands();
     }
 
     function mousePressed() {
-        let count = random(40, 60);
+        if (bands.length === 0) return;
         let t = millis();
-        for (let i = 0; i < count; i++) {
-            let angle = random(TWO_PI);
-            let speed = random(3.5, 7.0);
-            let f = new ErosionFragment(mouseX, mouseY, cos(angle)*speed, sin(angle)*speed, 'click', 4000, t);
-            fragments.push(f);
+        // Find nearest band to interaction point
+        let closestIdx = 0;
+        let minDist = Infinity;
+        for (let i = 0; i < bands.length; i++) {
+            let d = abs(bands[i].x - mouseX);
+            if (d < minDist) {
+                minDist = d;
+                closestIdx = i;
+            }
         }
-        lastMouseTime = t;
+        // Manual shatter triggers system regeneration
+        shatterBand(closestIdx, t);
+        lastShatterTime = t; // Reset auto-shatter timer
     }
 
     function windowResized() {
         resizeCanvas(windowWidth, windowHeight);
-        initBands();
-        fragments = [];
-        t0 = millis();
+        initSystem();
     }
 
     function drawInteractionIndicator(t) {
         if (t > 4000) return;
-        let alpha = map(t, 0, 4000, 180, 0);
+        let alpha = map(t, 0, 4000, 180, 0, true);
         push();
-        noStroke();
-        fill(255, 255, 255, alpha);
         translate(width / 2, 20);
-        // Stylized mouse icon
-        rectMode(CENTER);
-        rect(0, 0, 14, 22, 7);
-        fill(0, 0, 0, alpha);
-        rect(0, -5, 2, 6, 1);
+        
+        // Stylized generic target/click indicator
+        fill(255, alpha);
+        beginShape();
+        vertex(-2, -6);
+        vertex(2, -6);
+        vertex(2, -2);
+        vertex(6, -2);
+        vertex(6, 2);
+        vertex(2, 2);
+        vertex(2, 6);
+        vertex(-2, 6);
+        vertex(-2, 2);
+        vertex(-6, 2);
+        vertex(-6, -2);
+        vertex(-2, -2);
+        endShape(CLOSE);
+        
         pop();
     }
 
     // --- CLASSES ---
 
     class VerticalBand {
-        constructor(x, w, id) {
-            this.baseX = x;
+        constructor(x, w) {
             this.x = x;
+            this.targetX = x;
             this.w = w;
-            this.id = id;
-            this.pulsePhase = random(TWO_PI);
             this.nSeed = random(1000);
         }
 
-        updateAndDraw(t, phase, amp, gapOsc) {
-            // Drift logic
-            if (phase === 2) {
-                if (this.baseX < width / 3) this.x -= 0.15;
-                else if (this.baseX > width * 0.66) this.x += 0.1;
-                
-                // Wrap around
-                if (this.x < -100) this.x = width + 100;
-                if (this.x > width + 100) this.x = -100;
-            } else if (phase === 3) {
-                // Slowly return to base
-                this.x = lerp(this.x, this.baseX, 0.01);
-            }
+        update() {
+            // Smoothly drift towards target position to fill voids
+            this.x = lerp(this.x, this.targetX, 0.04);
+        }
 
-            // Pulse in phase 3
-            let scaleW = 1.0;
-            if (phase === 3) {
-                scaleW = 1.0 + sin((t * 0.001 * TWO_PI / 4) + this.id * 0.3) * 0.04;
-            }
-
-            let effW = (this.w + (phase > 1 ? gapOsc : 0)) * scaleW;
-            let halfW = effW / 2;
-            let step = 45; // Resolution of edges
+        draw(t) {
+            let halfW = this.w / 2;
+            let step = 40; // Vertex resolution for edges
 
             beginShape();
-            // Left edge down
+            // Left organic edge
             for (let y = -20; y <= height + 20; y += step) {
-                let nx = (noise(this.nSeed, y * 0.02, t * 0.001) - 0.5) * amp * 2;
+                let nx = (noise(this.nSeed, y * 0.015, t * 0.0004) - 0.5) * 8;
                 vertex(this.x - halfW + nx, y);
             }
-            // Right edge up
+            // Right organic edge
             for (let y = height + 20; y >= -20; y -= step) {
-                let nx = (noise(this.nSeed + 500, y * 0.02, t * 0.001) - 0.5) * amp * 2;
+                let nx = (noise(this.nSeed + 500, y * 0.015, t * 0.0004) - 0.5) * 8;
                 vertex(this.x + halfW + nx, y);
             }
             endShape(CLOSE);
@@ -304,103 +265,81 @@
     }
 
     class ErosionFragment {
-        constructor(x, y, vx, vy, type, life, t) {
+        constructor(x, y, vx, vy, life, t) {
             this.x = x;
             this.y = y;
             this.vx = vx;
             this.vy = vy;
-            this.type = type;
             this.lifeSpan = life;
             this.birthTime = t;
-            this.w = random(4, 20);
-            this.h = random(8, 24);
-            if (type === 'click') { this.w *= 1.5; this.h *= 1.5; }
+            this.w = random(3, 10);
+            this.h = random(6, 18);
             this.rot = random(TWO_PI);
-            this.rotV = random(0.02, 0.06) * (random() > 0.5 ? 1 : -1);
+            this.rotV = random(-0.08, 0.08);
             this.trail = [];
-            this.nSeed = random(1000);
         }
 
-        update(t) {
-            // Drift perturbation
-            let nt = t * 0.001;
-            this.vx += (noise(this.nSeed, nt) - 0.5) * 0.15;
-            this.vy += (noise(this.nSeed + 10, nt) - 0.5) * 0.15;
+        update() {
+            // Add friction to slow down over time
+            this.vx *= 0.96;
+            this.vy *= 0.96;
+            
+            // Add slight drift
+            this.vy += random(-0.1, 0.1);
 
-            // Apply velocity
             this.x += this.vx;
             this.y += this.vy;
             this.rot += this.rotV;
 
-            // Manage Trail
-            this.trail.unshift({x: this.x, y: this.y, r: this.rot});
-            if (this.trail.length > 5) this.trail.pop();
+            // Maintain history for ribbon trail
+            this.trail.unshift({ x: this.x, y: this.y });
+            if (this.trail.length > 8) {
+                this.trail.pop();
+            }
         }
 
-        draw(t, isAuto) {
+        draw(t) {
             let age = t - this.birthTime;
             let lifeRatio = constrain(age / this.lifeSpan, 0, 1);
             
-            let alphaMult = 1.0;
-            let scl = 1.0;
+            // Core feedback: slow scale to invisible to clear canvas
+            // Ease-in curve means it stays visible longer, then shrinks rapidly
+            let scl = lerp(1.0, 0.0, pow(lifeRatio, 2.5));
+            let alpha = lerp(255, 0, lifeRatio);
 
-            // Lifecycle transformations
-            if (lifeRatio < 0.1) {
-                // Spawn phase
-                let norm = lifeRatio / 0.1;
-                alphaMult = norm; // Linear ramp
-                scl = lerp(0.3, 1.0, 1 - pow(1 - norm, 3)); // easeOutCubic
-            } else if (lifeRatio > 0.9) {
-                // Fade phase
-                let norm = (lifeRatio - 0.9) / 0.1;
-                alphaMult = 1.0 - pow(norm, 2); // Exponential decay
-                scl = lerp(1.0, 0.5, norm);
-                this.vx *= 0.92; // Friction
-                this.vy *= 0.92;
-                this.rotV *= 1.05; // Spin up
-            }
+            if (scl < 0.01) return; // Cull drawing if functionally invisible
 
-            if (isAuto) alphaMult *= 0.8;
-            let maxAlpha = this.type === 'click' ? 240 : 200;
-            let baseAlpha = maxAlpha * alphaMult;
-            
-            let col = this.type === 'click' ? cPri : cSec;
-
-            // Draw Trails
-            for (let i = this.trail.length - 1; i >= 1; i--) {
-                let pt = this.trail[i];
-                let trailAlpha = baseAlpha * (1 - i/this.trail.length) * 0.7;
-                
-                push();
-                translate(pt.x, pt.y);
-                rotate(pt.r);
-                scale(scl);
-                fill(red(col), green(col), blue(col), trailAlpha);
-                // Custom beveled rect
+            // Draw Ribbon Trail
+            if (this.trail.length > 1) {
+                fill(red(cSec), green(cSec), blue(cSec), alpha * 0.35);
                 beginShape();
-                vertex(-this.w/2, -this.h/2 + 2);
-                vertex(-this.w/2 + 2, -this.h/2);
-                vertex(this.w/2, -this.h/2);
-                vertex(this.w/2, this.h/2);
-                vertex(-this.w/2, this.h/2);
+                let halfThick = (this.w / 2) * scl;
+                
+                // Left side of ribbon
+                for (let pt of this.trail) {
+                    vertex(pt.x - halfThick, pt.y);
+                }
+                // Right side of ribbon (reverse order)
+                for (let i = this.trail.length - 1; i >= 0; i--) {
+                    vertex(this.trail[i].x + halfThick, this.trail[i].y);
+                }
                 endShape(CLOSE);
-                pop();
             }
 
-            // Draw Main Fragment
+            // Draw Primary Geometric Shard
             push();
             translate(this.x, this.y);
             rotate(this.rot);
             scale(scl);
-            fill(red(col), green(col), blue(col), baseAlpha);
+            fill(red(cSec), green(cSec), blue(cSec), alpha);
+            
             beginShape();
-            vertex(-this.w/2, -this.h/2 + 3);
-            vertex(-this.w/2 + 3, -this.h/2);
-            vertex(this.w/2, -this.h/2);
-            vertex(this.w/2, this.h/2 - 3);
-            vertex(this.w/2 - 3, this.h/2);
-            vertex(-this.w/2, this.h/2);
+            vertex(-this.w / 2, -this.h / 2);
+            vertex(this.w / 2, -this.h / 3);
+            vertex(this.w / 2, this.h / 2);
+            vertex(-this.w / 2, this.h / 3);
             endShape(CLOSE);
+            
             pop();
         }
     }
